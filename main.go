@@ -78,6 +78,7 @@ func init() {
 	// Add flags
 	rootCmd.PersistentFlags().String("subscription-id", "", "Azure subscription ID")
 	rootCmd.PersistentFlags().String("access-token", "", "Azure access token")
+	rootCmd.PersistentFlags().Bool("list-resources", false, "List all resources in each resource group with their creation times")
 
 	// Bind flags to viper
 	if err := viper.BindPFlag("subscription-id", rootCmd.PersistentFlags().Lookup("subscription-id")); err != nil {
@@ -85,6 +86,9 @@ func init() {
 	}
 	if err := viper.BindPFlag("access-token", rootCmd.PersistentFlags().Lookup("access-token")); err != nil {
 		log.Fatalf("Failed to bind access-token flag: %v", err)
+	}
+	if err := viper.BindPFlag("list-resources", rootCmd.PersistentFlags().Lookup("list-resources")); err != nil {
+		log.Fatalf("Failed to bind list-resources flag: %v", err)
 	}
 }
 
@@ -173,19 +177,30 @@ func (ac *AzureClient) FetchResourceGroups() error {
 
 	fmt.Printf("Found %d resource groups:\n\n", len(rgResponse.Value))
 
+	// Check if we should list resources
+	listResources := viper.GetBool("list-resources")
+
 	// For each resource group, fetch its creation time
 	for _, rg := range rgResponse.Value {
 		fmt.Printf("Resource Group: %s\n", rg.Name)
 		fmt.Printf("  Location: %s\n", rg.Location)
 		fmt.Printf("  Provisioning State: %s\n", rg.Properties.ProvisioningState)
 
-		createdTime, err := ac.fetchResourceGroupCreatedTime(rg.Name)
-		if err != nil {
-			fmt.Printf("  Created Time: Error fetching (%v)\n", err)
-		} else if createdTime != nil {
-			fmt.Printf("  Created Time: %s\n", createdTime.Format(time.RFC3339))
+		if listResources {
+			// List all resources in this resource group
+			if err := ac.listResourcesInGroup(rg.Name); err != nil {
+				fmt.Printf("  Error listing resources: %v\n", err)
+			}
 		} else {
-			fmt.Printf("  Created Time: Not available\n")
+			// Just show the earliest creation time
+			createdTime, err := ac.fetchResourceGroupCreatedTime(rg.Name)
+			if err != nil {
+				fmt.Printf("  Created Time: Error fetching (%v)\n", err)
+			} else if createdTime != nil {
+				fmt.Printf("  Created Time: %s\n", createdTime.Format(time.RFC3339))
+			} else {
+				fmt.Printf("  Created Time: Not available\n")
+			}
 		}
 
 		fmt.Println()
@@ -229,6 +244,48 @@ func (ac *AzureClient) fetchResourceGroupCreatedTime(resourceGroupName string) (
 	}
 
 	return earliestTime, nil
+}
+
+func (ac *AzureClient) listResourcesInGroup(resourceGroupName string) error {
+	url := fmt.Sprintf("https://management.azure.com/subscriptions/%s/resourceGroups/%s/resources?$expand=createdTime&api-version=2019-10-01",
+		ac.Config.SubscriptionID, resourceGroupName)
+
+	resp, err := ac.makeAzureRequest(url)
+	if err != nil {
+		return fmt.Errorf("failed to fetch resources: %w", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("Warning: failed to close response body: %v", err)
+		}
+	}()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	var resourcesResponse ResourcesResponse
+	if err := json.Unmarshal(body, &resourcesResponse); err != nil {
+		return fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if len(resourcesResponse.Value) == 0 {
+		fmt.Printf("  No resources found in this resource group\n")
+		return nil
+	}
+
+	fmt.Printf("  Resources (%d):\n", len(resourcesResponse.Value))
+	for _, resource := range resourcesResponse.Value {
+		fmt.Printf("    - %s (%s)\n", resource.Name, resource.Type)
+		if resource.CreatedTime != nil {
+			fmt.Printf("      Created: %s\n", resource.CreatedTime.Format(time.RFC3339))
+		} else {
+			fmt.Printf("      Created: Not available\n")
+		}
+	}
+
+	return nil
 }
 
 func main() {
