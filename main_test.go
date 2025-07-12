@@ -238,6 +238,7 @@ func TestFetchResourceGroups(t *testing.T) {
 		Config: Config{
 			SubscriptionID: "test-subscription",
 			AccessToken:    "test-token",
+			MaxConcurrency: 10, // Set MaxConcurrency to prevent hanging
 		},
 		HTTPClient: mockClient,
 	}
@@ -380,6 +381,7 @@ func TestInvalidJSON(t *testing.T) {
 		Config: Config{
 			SubscriptionID: "test-subscription",
 			AccessToken:    "test-token",
+			MaxConcurrency: 10, // Set MaxConcurrency to prevent hanging
 		},
 		HTTPClient: mockClient,
 	}
@@ -622,6 +624,7 @@ func TestFetchResourceGroupsWithDefaultDetection(t *testing.T) {
 		Config: Config{
 			SubscriptionID: "test-subscription",
 			AccessToken:    "test-token",
+			MaxConcurrency: 10, // Set MaxConcurrency to prevent hanging
 		},
 		HTTPClient: mockClient,
 	}

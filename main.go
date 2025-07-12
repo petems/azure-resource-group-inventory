@@ -332,8 +332,14 @@ func (ac *AzureClient) processResourceGroupsConcurrently(resourceGroups []Resour
 	var wg sync.WaitGroup
 	results := make([]ResourceGroupResult, len(resourceGroups))
 
+	// Ensure MaxConcurrency is at least 1 to prevent hanging
+	maxConcurrency := ac.Config.MaxConcurrency
+	if maxConcurrency <= 0 {
+		maxConcurrency = 1
+	}
+
 	// Use a semaphore to limit concurrent goroutines
-	semaphore := make(chan struct{}, ac.Config.MaxConcurrency)
+	semaphore := make(chan struct{}, maxConcurrency)
 
 	// Start workers
 	for i, rg := range resourceGroups {
