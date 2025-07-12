@@ -6,8 +6,24 @@ A command-line tool to fetch Azure resource groups and their creation times usin
 
 - Fetches all resource groups from a specified Azure subscription
 - Retrieves creation times for each resource group
+- **🆕 Detects default Azure resource groups** and shows context about what created them
 - Supports both command-line flags and environment variables for configuration
 - Clean, formatted output with resource group details
+
+## Default Resource Group Detection
+
+This tool automatically identifies default resource groups created by Azure services and provides context about what created them:
+
+| Pattern | Created By | Description |
+|---------|------------|-------------|
+| `DefaultResourceGroup-XXX` | Azure CLI / Cloud Shell / Visual Studio | Common default resource group for the region |
+| `DynamicsDeployments` | Microsoft Dynamics ERP | Automatically created for non-production instances |
+| `MC_*_*_*` | Azure Kubernetes Service (AKS) | Contains AKS cluster infrastructure resources |
+| `AzureBackupRG*` | Azure Backup | Created for backup operations |
+| `NetworkWatcherRG` | Azure Network Watcher | Created for network monitoring |
+| `databricks-rg*` | Azure Databricks | Created for managed workspace resources |
+| `microsoft-network` | Microsoft Networking Services | Used by Microsoft's networking services |
+| `LogAnalyticsDefaultResources` | Azure Log Analytics | Created for default workspace resources |
 
 ## Prerequisites
 
@@ -79,22 +95,44 @@ export AZURE_ACCESS_TOKEN="your-access-token"
 ### Example Output
 ```
 Fetching resource groups...
-Found 3 resource groups:
+Found 5 resource groups:
 
-Resource Group: my-app-rg
+Resource Group: DefaultResourceGroup-EUS
   Location: eastus
   Provisioning State: Succeeded
+  🔍 DEFAULT RESOURCE GROUP DETECTED
+  📋 Created By: Azure CLI / Cloud Shell / Visual Studio
+  📝 Description: Common default resource group created for the region, used by Azure CLI, Cloud Shell, and Visual Studio for resource deployment
   Created Time: 2023-10-15T14:30:22Z
 
-Resource Group: test-rg
-  Location: westus2
+Resource Group: MC_myapp_myakscluster_eastus
+  Location: eastus
   Provisioning State: Succeeded
+  🔍 DEFAULT RESOURCE GROUP DETECTED
+  📋 Created By: Azure Kubernetes Service (AKS)
+  📝 Description: Created when deploying an AKS cluster, contains infrastructure resources for the cluster
   Created Time: 2023-11-01T09:15:45Z
 
-Resource Group: backup-rg
-  Location: centralus
+Resource Group: my-app-rg
+  Location: westus2
   Provisioning State: Succeeded
+  Created Time: 2023-10-20T16:45:12Z
+
+Resource Group: NetworkWatcherRG
+  Location: eastus
+  Provisioning State: Succeeded
+  🔍 DEFAULT RESOURCE GROUP DETECTED
+  📋 Created By: Azure Network Watcher
+  📝 Description: Created by Azure Network Watcher service for network monitoring
   Created Time: Not available
+
+Resource Group: databricks-rg-myworkspace-abc123
+  Location: westus
+  Provisioning State: Succeeded
+  🔍 DEFAULT RESOURCE GROUP DETECTED
+  📋 Created By: Azure Databricks
+  📝 Description: Created by Azure Databricks service for managed workspace resources
+  Created Time: 2023-11-05T11:20:33Z
 ```
 
 ## Configuration
