@@ -238,6 +238,7 @@ func TestFetchResourceGroups(t *testing.T) {
 		Config: Config{
 			SubscriptionID: "test-subscription",
 			AccessToken:    "test-token",
+			MaxConcurrency: 10, // Set MaxConcurrency to prevent hanging
 		},
 		HTTPClient: mockClient,
 	}
@@ -380,6 +381,7 @@ func TestInvalidJSON(t *testing.T) {
 		Config: Config{
 			SubscriptionID: "test-subscription",
 			AccessToken:    "test-token",
+			MaxConcurrency: 10, // Set MaxConcurrency to prevent hanging
 		},
 		HTTPClient: mockClient,
 	}
@@ -394,6 +396,87 @@ func TestInvalidJSON(t *testing.T) {
 	_, err = client.fetchResourceGroupCreatedTime("test-rg")
 	if err == nil {
 		t.Error("Expected error for invalid JSON, got nil")
+	}
+}
+
+func TestMaxConcurrencyValidation(t *testing.T) {
+	testCases := []struct {
+		name                  string
+		inputMaxConcurrency   int
+		expectedMaxConcurrency int
+	}{
+		{
+			name:                  "Valid concurrency",
+			inputMaxConcurrency:   5,
+			expectedMaxConcurrency: 5,
+		},
+		{
+			name:                  "Zero concurrency should be set to 1",
+			inputMaxConcurrency:   0,
+			expectedMaxConcurrency: 1,
+		},
+		{
+			name:                  "Negative concurrency should be set to 1",
+			inputMaxConcurrency:   -5,
+			expectedMaxConcurrency: 1,
+		},
+		{
+			name:                  "Minimum valid concurrency",
+			inputMaxConcurrency:   1,
+			expectedMaxConcurrency: 1,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Test the validation function directly
+			result := validateConcurrency(tc.inputMaxConcurrency)
+			
+			if result != tc.expectedMaxConcurrency {
+				t.Errorf("Expected validateConcurrency(%d) to return %d, but got %d", 
+					tc.inputMaxConcurrency, tc.expectedMaxConcurrency, result)
+			}
+
+			// Also test that the validation prevents hanging in actual usage
+			client := &AzureClient{
+				Config: Config{
+					SubscriptionID: "test-subscription",
+					AccessToken:    "test-token",
+					MaxConcurrency: tc.inputMaxConcurrency,
+				},
+			}
+
+			// Test the validation by calling processResourceGroupsConcurrently
+			// which contains the validation logic
+			resourceGroups := []ResourceGroup{
+				{
+					Name:     "test-rg",
+					Location: "eastus",
+					Properties: struct {
+						ProvisioningState string `json:"provisioningState"`
+					}{
+						ProvisioningState: "Succeeded",
+					},
+				},
+			}
+
+			// Create a mock client for the test
+			mockClient := &MockHTTPClient{
+				DoFunc: func(req *http.Request) (*http.Response, error) {
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Body:       io.NopCloser(strings.NewReader(`{"value": []}`)),
+					}, nil
+				},
+			}
+			client.HTTPClient = mockClient
+
+			// This should not hang regardless of the input MaxConcurrency
+			client.processResourceGroupsConcurrently(resourceGroups)
+
+			// The test passes if we reach this point without hanging
+			t.Log("Test completed successfully - no hanging occurred")
+		})
 	}
 }
 
@@ -550,15 +633,15 @@ func TestCheckIfDefaultResourceGroup(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := checkIfDefaultResourceGroup(tc.resourceGroupName)
-			
+
 			if result.IsDefault != tc.expectedIsDefault {
 				t.Errorf("Expected IsDefault=%v, got %v", tc.expectedIsDefault, result.IsDefault)
 			}
-			
+
 			if result.CreatedBy != tc.expectedCreatedBy {
 				t.Errorf("Expected CreatedBy='%s', got '%s'", tc.expectedCreatedBy, result.CreatedBy)
 			}
-			
+
 			if result.Description != tc.expectedDescription {
 				t.Errorf("Expected Description='%s', got '%s'", tc.expectedDescription, result.Description)
 			}
@@ -622,6 +705,7 @@ func TestFetchResourceGroupsWithDefaultDetection(t *testing.T) {
 		Config: Config{
 			SubscriptionID: "test-subscription",
 			AccessToken:    "test-token",
+			MaxConcurrency: 10, // Set MaxConcurrency to prevent hanging
 		},
 		HTTPClient: mockClient,
 	}
@@ -652,22 +736,22 @@ func TestFetchResourceGroupsWithDefaultDetection(t *testing.T) {
 
 	// Check if output contains expected content
 	outputStr := buf.String()
-	
+
 	// Should contain default resource group detection
 	if !strings.Contains(outputStr, "DEFAULT RESOURCE GROUP DETECTED") {
 		t.Error("Expected output to contain 'DEFAULT RESOURCE GROUP DETECTED'")
 	}
-	
+
 	// Should contain Azure CLI detection
 	if !strings.Contains(outputStr, "Azure CLI / Cloud Shell / Visual Studio") {
 		t.Error("Expected output to contain 'Azure CLI / Cloud Shell / Visual Studio'")
 	}
-	
+
 	// Should contain AKS detection
 	if !strings.Contains(outputStr, "Azure Kubernetes Service (AKS)") {
 		t.Error("Expected output to contain 'Azure Kubernetes Service (AKS)'")
 	}
-	
+
 	// Should contain all resource group names
 	if !strings.Contains(outputStr, "DefaultResourceGroup-EUS") {
 		t.Error("Expected output to contain 'DefaultResourceGroup-EUS'")
