@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -149,6 +150,96 @@ func (ac *AzureClient) makeAzureRequest(url string) (*http.Response, error) {
 	return resp, nil
 }
 
+// DefaultResourceGroupInfo represents information about a default resource group
+type DefaultResourceGroupInfo struct {
+	IsDefault   bool
+	CreatedBy   string
+	Description string
+}
+
+// checkIfDefaultResourceGroup checks if a resource group name matches patterns of default resource groups
+func checkIfDefaultResourceGroup(name string) DefaultResourceGroupInfo {
+	name = strings.ToLower(name)
+	
+	// DefaultResourceGroup-XXX pattern
+	if matched, _ := regexp.MatchString(`^defaultresourcegroup-`, name); matched {
+		return DefaultResourceGroupInfo{
+			IsDefault:   true,
+			CreatedBy:   "Azure CLI / Cloud Shell / Visual Studio",
+			Description: "Common default resource group created for the region, used by Azure CLI, Cloud Shell, and Visual Studio for resource deployment",
+		}
+	}
+	
+	// DynamicsDeployments pattern
+	if name == "dynamicsdeployments" {
+		return DefaultResourceGroupInfo{
+			IsDefault:   true,
+			CreatedBy:   "Microsoft Dynamics ERP",
+			Description: "Automatically created for Microsoft Dynamics ERP non-production instances",
+		}
+	}
+	
+	// MC_* pattern for AKS
+	if matched, _ := regexp.MatchString(`^mc_.*_.*_.*$`, name); matched {
+		return DefaultResourceGroupInfo{
+			IsDefault:   true,
+			CreatedBy:   "Azure Kubernetes Service (AKS)",
+			Description: "Created when deploying an AKS cluster, contains infrastructure resources for the cluster",
+		}
+	}
+	
+	// AzureBackupRG* pattern
+	if matched, _ := regexp.MatchString(`^azurebackuprg`, name); matched {
+		return DefaultResourceGroupInfo{
+			IsDefault:   true,
+			CreatedBy:   "Azure Backup",
+			Description: "Created by Azure Backup service for backup operations",
+		}
+	}
+	
+	// NetworkWatcherRG pattern
+	if name == "networkwatcherrg" {
+		return DefaultResourceGroupInfo{
+			IsDefault:   true,
+			CreatedBy:   "Azure Network Watcher",
+			Description: "Created by Azure Network Watcher service for network monitoring",
+		}
+	}
+	
+	// databricks-rg* pattern
+	if matched, _ := regexp.MatchString(`^databricks-rg`, name); matched {
+		return DefaultResourceGroupInfo{
+			IsDefault:   true,
+			CreatedBy:   "Azure Databricks",
+			Description: "Created by Azure Databricks service for managed workspace resources",
+		}
+	}
+	
+	// microsoft-network pattern
+	if name == "microsoft-network" {
+		return DefaultResourceGroupInfo{
+			IsDefault:   true,
+			CreatedBy:   "Microsoft Networking Services",
+			Description: "Used by Microsoft's networking services",
+		}
+	}
+	
+	// LogAnalyticsDefaultResources pattern
+	if name == "loganalyticsdefaultresources" {
+		return DefaultResourceGroupInfo{
+			IsDefault:   true,
+			CreatedBy:   "Azure Log Analytics",
+			Description: "Created by Azure Log Analytics service for default workspace resources",
+		}
+	}
+	
+	return DefaultResourceGroupInfo{
+		IsDefault:   false,
+		CreatedBy:   "",
+		Description: "",
+	}
+}
+
 func (ac *AzureClient) FetchResourceGroups() error {
 	fmt.Println("Fetching resource groups...")
 
@@ -185,6 +276,14 @@ func (ac *AzureClient) FetchResourceGroups() error {
 		fmt.Printf("Resource Group: %s\n", rg.Name)
 		fmt.Printf("  Location: %s\n", rg.Location)
 		fmt.Printf("  Provisioning State: %s\n", rg.Properties.ProvisioningState)
+
+		// Check if this is a default resource group
+		defaultInfo := checkIfDefaultResourceGroup(rg.Name)
+		if defaultInfo.IsDefault {
+			fmt.Printf("  🔍 DEFAULT RESOURCE GROUP DETECTED\n")
+			fmt.Printf("  📋 Created By: %s\n", defaultInfo.CreatedBy)
+			fmt.Printf("  📝 Description: %s\n", defaultInfo.Description)
+		}
 
 		if listResources {
 			// List all resources in this resource group
