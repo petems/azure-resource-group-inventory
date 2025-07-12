@@ -105,7 +105,7 @@ func TestIntegrationOptimizedFetchResourceGroups(t *testing.T) {
 
 	// Read captured output
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
+	_, _ = io.Copy(&buf, r)
 	output := buf.String()
 	logOutput := logBuf.String()
 
@@ -173,7 +173,7 @@ func TestRaceConditionDetection(t *testing.T) {
 		DoFunc: func(req *http.Request) (*http.Response, error) {
 			// Variable sleep to increase chance of race conditions
 			time.Sleep(time.Duration(1+len(req.URL.Path)%5) * time.Millisecond)
-			
+
 			return &http.Response{
 				StatusCode: http.StatusOK,
 				Body: io.NopCloser(strings.NewReader(`{
@@ -215,7 +215,7 @@ func TestRaceConditionDetection(t *testing.T) {
 
 	// Read captured output
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
+	_, _ = io.Copy(&buf, r)
 
 	// Test passes if no race conditions are detected
 	// The race detector will fail the test if races are found
@@ -291,7 +291,7 @@ func TestPerformanceMonitoringIntegration(t *testing.T) {
 
 	// Read outputs
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
+	_, _ = io.Copy(&buf, r)
 	logOutput := logBuf.String()
 
 	// Verify no errors
@@ -346,7 +346,7 @@ func TestOptimizedRegexPerformance(t *testing.T) {
 // TestConcurrentProcessingScalability tests scalability of concurrent processing
 func TestConcurrentProcessingScalability(t *testing.T) {
 	scales := []int{1, 5, 10, 25, 50}
-	
+
 	for _, scale := range scales {
 		t.Run(fmt.Sprintf("Scale_%d", scale), func(t *testing.T) {
 			// Create resource groups
@@ -370,10 +370,10 @@ func TestConcurrentProcessingScalability(t *testing.T) {
 					mu.Lock()
 					requestCount++
 					mu.Unlock()
-					
+
 					// Simulate API response time
 					time.Sleep(5 * time.Millisecond)
-					
+
 					return &http.Response{
 						StatusCode: http.StatusOK,
 						Body: io.NopCloser(strings.NewReader(`{
@@ -415,7 +415,7 @@ func TestConcurrentProcessingScalability(t *testing.T) {
 
 			// Read captured output
 			var buf bytes.Buffer
-			io.Copy(&buf, r)
+			_, _ = io.Copy(&buf, r)
 
 			// Verify all requests were made
 			if requestCount != scale {
@@ -496,7 +496,7 @@ func TestErrorHandlingInOptimizedFlow(t *testing.T) {
 
 	// Read captured output
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
+	_, _ = io.Copy(&buf, r)
 	output := buf.String()
 
 	// Verify no fatal errors (should handle gracefully)
@@ -594,7 +594,7 @@ func TestConfigurationIntegration(t *testing.T) {
 
 			// Read captured output
 			var buf bytes.Buffer
-			io.Copy(&buf, r)
+			_, _ = io.Copy(&buf, r)
 
 			// Test passes if no panics or errors occur
 		})

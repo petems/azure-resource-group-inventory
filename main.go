@@ -20,13 +20,13 @@ import (
 // Pre-compiled regex patterns for better performance
 var (
 	defaultResourceGroupPattern = regexp.MustCompile(`^defaultresourcegroup-`)
-	dynamicsPattern            = regexp.MustCompile(`^dynamicsdeployments$`)
-	aksPattern                 = regexp.MustCompile(`^mc_.*_.*_.*$`)
-	azureBackupPattern         = regexp.MustCompile(`^azurebackuprg`)
-	networkWatcherPattern      = regexp.MustCompile(`^networkwatcherrg$`)
-	databricksPattern          = regexp.MustCompile(`^databricks-rg`)
-	microsoftNetworkPattern    = regexp.MustCompile(`^microsoft-network$`)
-	logAnalyticsPattern        = regexp.MustCompile(`^loganalyticsdefaultresources$`)
+	dynamicsPattern             = regexp.MustCompile(`^dynamicsdeployments$`)
+	aksPattern                  = regexp.MustCompile(`^mc_.*_.*_.*$`)
+	azureBackupPattern          = regexp.MustCompile(`^azurebackuprg`)
+	networkWatcherPattern       = regexp.MustCompile(`^networkwatcherrg$`)
+	databricksPattern           = regexp.MustCompile(`^databricks-rg`)
+	microsoftNetworkPattern     = regexp.MustCompile(`^microsoft-network$`)
+	logAnalyticsPattern         = regexp.MustCompile(`^loganalyticsdefaultresources$`)
 )
 
 // HTTP client interface for testing
@@ -198,7 +198,7 @@ type DefaultResourceGroupInfo struct {
 // Now uses pre-compiled regex patterns for better performance
 func checkIfDefaultResourceGroup(name string) DefaultResourceGroupInfo {
 	nameLower := strings.ToLower(name)
-	
+
 	// DefaultResourceGroup-XXX pattern
 	if defaultResourceGroupPattern.MatchString(nameLower) {
 		return DefaultResourceGroupInfo{
@@ -207,7 +207,7 @@ func checkIfDefaultResourceGroup(name string) DefaultResourceGroupInfo {
 			Description: "Common default resource group created for the region, used by Azure CLI, Cloud Shell, and Visual Studio for resource deployment",
 		}
 	}
-	
+
 	// DynamicsDeployments pattern
 	if dynamicsPattern.MatchString(nameLower) {
 		return DefaultResourceGroupInfo{
@@ -216,7 +216,7 @@ func checkIfDefaultResourceGroup(name string) DefaultResourceGroupInfo {
 			Description: "Automatically created for Microsoft Dynamics ERP non-production instances",
 		}
 	}
-	
+
 	// MC_* pattern for AKS
 	if aksPattern.MatchString(nameLower) {
 		return DefaultResourceGroupInfo{
@@ -225,7 +225,7 @@ func checkIfDefaultResourceGroup(name string) DefaultResourceGroupInfo {
 			Description: "Created when deploying an AKS cluster, contains infrastructure resources for the cluster",
 		}
 	}
-	
+
 	// AzureBackupRG* pattern
 	if azureBackupPattern.MatchString(nameLower) {
 		return DefaultResourceGroupInfo{
@@ -234,7 +234,7 @@ func checkIfDefaultResourceGroup(name string) DefaultResourceGroupInfo {
 			Description: "Created by Azure Backup service for backup operations",
 		}
 	}
-	
+
 	// NetworkWatcherRG pattern
 	if networkWatcherPattern.MatchString(nameLower) {
 		return DefaultResourceGroupInfo{
@@ -243,7 +243,7 @@ func checkIfDefaultResourceGroup(name string) DefaultResourceGroupInfo {
 			Description: "Created by Azure Network Watcher service for network monitoring",
 		}
 	}
-	
+
 	// databricks-rg* pattern
 	if databricksPattern.MatchString(nameLower) {
 		return DefaultResourceGroupInfo{
@@ -252,7 +252,7 @@ func checkIfDefaultResourceGroup(name string) DefaultResourceGroupInfo {
 			Description: "Created by Azure Databricks service for managed workspace resources",
 		}
 	}
-	
+
 	// microsoft-network pattern
 	if microsoftNetworkPattern.MatchString(nameLower) {
 		return DefaultResourceGroupInfo{
@@ -261,7 +261,7 @@ func checkIfDefaultResourceGroup(name string) DefaultResourceGroupInfo {
 			Description: "Used by Microsoft's networking services",
 		}
 	}
-	
+
 	// LogAnalyticsDefaultResources pattern
 	if logAnalyticsPattern.MatchString(nameLower) {
 		return DefaultResourceGroupInfo{
@@ -270,7 +270,7 @@ func checkIfDefaultResourceGroup(name string) DefaultResourceGroupInfo {
 			Description: "Created by Azure Log Analytics service for default workspace resources",
 		}
 	}
-	
+
 	return DefaultResourceGroupInfo{
 		IsDefault:   false,
 		CreatedBy:   "",
@@ -331,7 +331,7 @@ func (ac *AzureClient) FetchResourceGroups() error {
 func (ac *AzureClient) processResourceGroupsConcurrently(resourceGroups []ResourceGroup) {
 	var wg sync.WaitGroup
 	results := make([]ResourceGroupResult, len(resourceGroups))
-	
+
 	// Use a semaphore to limit concurrent goroutines
 	semaphore := make(chan struct{}, ac.Config.MaxConcurrency)
 
@@ -340,7 +340,7 @@ func (ac *AzureClient) processResourceGroupsConcurrently(resourceGroups []Resour
 		wg.Add(1)
 		go func(i int, rg ResourceGroup) {
 			defer wg.Done()
-			
+
 			// Acquire semaphore
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()

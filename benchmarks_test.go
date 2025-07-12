@@ -61,7 +61,7 @@ func BenchmarkCheckIfDefaultResourceGroupParallel(b *testing.B) {
 // BenchmarkSequentialProcessing benchmarks the old sequential processing approach
 func BenchmarkSequentialProcessing(b *testing.B) {
 	mockResourceGroups := generateMockResourceGroups(50)
-	
+
 	mockClient := &MockHTTPClient{
 		DoFunc: func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
@@ -93,7 +93,7 @@ func BenchmarkSequentialProcessing(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		// Simulate sequential processing
 		for _, rg := range mockResourceGroups {
-			client.fetchResourceGroupCreatedTime(rg.Name)
+			_, _ = client.fetchResourceGroupCreatedTime(rg.Name)
 		}
 	}
 }
@@ -101,7 +101,7 @@ func BenchmarkSequentialProcessing(b *testing.B) {
 // BenchmarkConcurrentProcessing benchmarks the new concurrent processing approach
 func BenchmarkConcurrentProcessing(b *testing.B) {
 	mockResourceGroups := generateMockResourceGroups(50)
-	
+
 	mockClient := &MockHTTPClient{
 		DoFunc: func(req *http.Request) (*http.Response, error) {
 			// Simulate realistic API response time
@@ -136,15 +136,15 @@ func BenchmarkConcurrentProcessing(b *testing.B) {
 		// Simulate concurrent processing
 		semaphore := make(chan struct{}, client.Config.MaxConcurrency)
 		var wg sync.WaitGroup
-		
+
 		for _, rg := range mockResourceGroups {
 			wg.Add(1)
 			go func(rg ResourceGroup) {
 				defer wg.Done()
 				semaphore <- struct{}{}
 				defer func() { <-semaphore }()
-				
-				client.fetchResourceGroupCreatedTime(rg.Name)
+
+				_, _ = client.fetchResourceGroupCreatedTime(rg.Name)
 			}(rg)
 		}
 		wg.Wait()
@@ -154,7 +154,7 @@ func BenchmarkConcurrentProcessing(b *testing.B) {
 // BenchmarkMemoryUsage benchmarks memory usage patterns
 func BenchmarkMemoryUsage(b *testing.B) {
 	mockResourceGroups := generateMockResourceGroups(100)
-	
+
 	mockClient := &MockHTTPClient{
 		DoFunc: func(req *http.Request) (*http.Response, error) {
 			// Generate a larger response to test memory usage
@@ -172,7 +172,7 @@ func BenchmarkMemoryUsage(b *testing.B) {
 				}`
 			}
 			largeResponse += `]}`
-			
+
 			return &http.Response{
 				StatusCode: http.StatusOK,
 				Body:       io.NopCloser(strings.NewReader(largeResponse)),
@@ -192,7 +192,7 @@ func BenchmarkMemoryUsage(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for _, rg := range mockResourceGroups {
-			client.fetchResourceGroupCreatedTime(rg.Name)
+			_, _ = client.fetchResourceGroupCreatedTime(rg.Name)
 		}
 	}
 }
@@ -227,7 +227,7 @@ func BenchmarkStringOperations(b *testing.B) {
 // BenchmarkConcurrentVsSequential compares concurrent vs sequential processing
 func BenchmarkConcurrentVsSequential(b *testing.B) {
 	mockResourceGroups := generateMockResourceGroups(20)
-	
+
 	mockClient := &MockHTTPClient{
 		DoFunc: func(req *http.Request) (*http.Response, error) {
 			// Simulate realistic API response time
@@ -261,7 +261,7 @@ func BenchmarkConcurrentVsSequential(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			for _, rg := range mockResourceGroups {
-				client.fetchResourceGroupCreatedTime(rg.Name)
+				_, _ = client.fetchResourceGroupCreatedTime(rg.Name)
 			}
 		}
 	})
@@ -280,15 +280,15 @@ func BenchmarkConcurrentVsSequential(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			semaphore := make(chan struct{}, client.Config.MaxConcurrency)
 			var wg sync.WaitGroup
-			
+
 			for _, rg := range mockResourceGroups {
 				wg.Add(1)
 				go func(rg ResourceGroup) {
 					defer wg.Done()
 					semaphore <- struct{}{}
 					defer func() { <-semaphore }()
-					
-					client.fetchResourceGroupCreatedTime(rg.Name)
+
+					_, _ = client.fetchResourceGroupCreatedTime(rg.Name)
 				}(rg)
 			}
 			wg.Wait()
@@ -299,7 +299,7 @@ func BenchmarkConcurrentVsSequential(b *testing.B) {
 // BenchmarkHTTPClientOptimizations benchmarks HTTP client optimizations
 func BenchmarkHTTPClientOptimizations(b *testing.B) {
 	mockResourceGroups := generateMockResourceGroups(10)
-	
+
 	mockClient := &MockHTTPClient{
 		DoFunc: func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
@@ -331,7 +331,7 @@ func BenchmarkHTTPClientOptimizations(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			for _, rg := range mockResourceGroups {
-				client.fetchResourceGroupCreatedTime(rg.Name)
+				_, _ = client.fetchResourceGroupCreatedTime(rg.Name)
 			}
 		}
 	})
@@ -349,7 +349,7 @@ func BenchmarkHTTPClientOptimizations(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			for _, rg := range mockResourceGroups {
-				client.fetchResourceGroupCreatedTime(rg.Name)
+				_, _ = client.fetchResourceGroupCreatedTime(rg.Name)
 			}
 		}
 	})
@@ -376,11 +376,11 @@ func generateMockResourceGroups(count int) []ResourceGroup {
 // BenchmarkScalability tests performance at different scales
 func BenchmarkScalability(b *testing.B) {
 	scales := []int{10, 50, 100, 200}
-	
+
 	for _, scale := range scales {
 		b.Run(fmt.Sprintf("Scale_%d", scale), func(b *testing.B) {
 			mockResourceGroups := generateMockResourceGroups(scale)
-			
+
 			mockClient := &MockHTTPClient{
 				DoFunc: func(req *http.Request) (*http.Response, error) {
 					// Simulate realistic API response time
@@ -414,15 +414,15 @@ func BenchmarkScalability(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				semaphore := make(chan struct{}, client.Config.MaxConcurrency)
 				var wg sync.WaitGroup
-				
+
 				for _, rg := range mockResourceGroups {
 					wg.Add(1)
 					go func(rg ResourceGroup) {
 						defer wg.Done()
 						semaphore <- struct{}{}
 						defer func() { <-semaphore }()
-						
-						client.fetchResourceGroupCreatedTime(rg.Name)
+
+						_, _ = client.fetchResourceGroupCreatedTime(rg.Name)
 					}(rg)
 				}
 				wg.Wait()

@@ -550,15 +550,15 @@ func TestCheckIfDefaultResourceGroup(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := checkIfDefaultResourceGroup(tc.resourceGroupName)
-			
+
 			if result.IsDefault != tc.expectedIsDefault {
 				t.Errorf("Expected IsDefault=%v, got %v", tc.expectedIsDefault, result.IsDefault)
 			}
-			
+
 			if result.CreatedBy != tc.expectedCreatedBy {
 				t.Errorf("Expected CreatedBy='%s', got '%s'", tc.expectedCreatedBy, result.CreatedBy)
 			}
-			
+
 			if result.Description != tc.expectedDescription {
 				t.Errorf("Expected Description='%s', got '%s'", tc.expectedDescription, result.Description)
 			}
@@ -652,22 +652,22 @@ func TestFetchResourceGroupsWithDefaultDetection(t *testing.T) {
 
 	// Check if output contains expected content
 	outputStr := buf.String()
-	
+
 	// Should contain default resource group detection
 	if !strings.Contains(outputStr, "DEFAULT RESOURCE GROUP DETECTED") {
 		t.Error("Expected output to contain 'DEFAULT RESOURCE GROUP DETECTED'")
 	}
-	
+
 	// Should contain Azure CLI detection
 	if !strings.Contains(outputStr, "Azure CLI / Cloud Shell / Visual Studio") {
 		t.Error("Expected output to contain 'Azure CLI / Cloud Shell / Visual Studio'")
 	}
-	
+
 	// Should contain AKS detection
 	if !strings.Contains(outputStr, "Azure Kubernetes Service (AKS)") {
 		t.Error("Expected output to contain 'Azure Kubernetes Service (AKS)'")
 	}
-	
+
 	// Should contain all resource group names
 	if !strings.Contains(outputStr, "DefaultResourceGroup-EUS") {
 		t.Error("Expected output to contain 'DefaultResourceGroup-EUS'")

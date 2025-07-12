@@ -19,13 +19,13 @@ func TestPrecompiledRegexPatterns(t *testing.T) {
 	// Test that patterns are actually compiled and not nil
 	patterns := map[string]*regexp.Regexp{
 		"defaultResourceGroupPattern": defaultResourceGroupPattern,
-		"dynamicsPattern":            dynamicsPattern,
-		"aksPattern":                 aksPattern,
-		"azureBackupPattern":         azureBackupPattern,
-		"networkWatcherPattern":      networkWatcherPattern,
-		"databricksPattern":          databricksPattern,
-		"microsoftNetworkPattern":    microsoftNetworkPattern,
-		"logAnalyticsPattern":        logAnalyticsPattern,
+		"dynamicsPattern":             dynamicsPattern,
+		"aksPattern":                  aksPattern,
+		"azureBackupPattern":          azureBackupPattern,
+		"networkWatcherPattern":       networkWatcherPattern,
+		"databricksPattern":           databricksPattern,
+		"microsoftNetworkPattern":     microsoftNetworkPattern,
+		"logAnalyticsPattern":         logAnalyticsPattern,
 	}
 
 	for name, pattern := range patterns {
@@ -78,7 +78,7 @@ func TestPrecompiledRegexAccuracy(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := checkIfDefaultResourceGroup(tc.resourceGroup)
-			
+
 			if result.IsDefault != tc.expectedResult.IsDefault {
 				t.Errorf("Expected IsDefault=%v, got %v", tc.expectedResult.IsDefault, result.IsDefault)
 			}
@@ -130,10 +130,10 @@ func TestConcurrentProcessing(t *testing.T) {
 			mu.Lock()
 			callCount++
 			mu.Unlock()
-			
+
 			// Simulate some processing time
 			time.Sleep(10 * time.Millisecond)
-			
+
 			return &http.Response{
 				StatusCode: http.StatusOK,
 				Body: io.NopCloser(strings.NewReader(`{
@@ -176,7 +176,7 @@ func TestConcurrentProcessing(t *testing.T) {
 
 	// Read captured output
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
+	_, _ = io.Copy(&buf, r)
 	output := buf.String()
 
 	// Verify all resource groups were processed
@@ -232,11 +232,11 @@ func TestConcurrentProcessingErrorHandling(t *testing.T) {
 			callCount++
 			currentCall := callCount
 			mu.Unlock()
-			
+
 			if currentCall == 2 {
 				return nil, io.EOF // Simulate network error
 			}
-			
+
 			return &http.Response{
 				StatusCode: http.StatusOK,
 				Body: io.NopCloser(strings.NewReader(`{
@@ -276,14 +276,14 @@ func TestConcurrentProcessingErrorHandling(t *testing.T) {
 
 	// Read captured output
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
+	_, _ = io.Copy(&buf, r)
 	output := buf.String()
 
 	// Verify error is handled gracefully
 	if !strings.Contains(output, "Error fetching") {
 		t.Error("Expected error message in output")
 	}
-	
+
 	// Verify both resource groups are still processed
 	if !strings.Contains(output, "test-rg-1") || !strings.Contains(output, "test-rg-2") {
 		t.Error("Expected both resource groups to be processed despite error")
@@ -322,16 +322,16 @@ func TestSemaphoreRateLimiting(t *testing.T) {
 			currentMax := maxConcurrent
 			currentTotal := totalRequests
 			mu.Unlock()
-			
+
 			t.Logf("Request %d: concurrent=%d, max=%d", currentTotal, concurrentRequests, currentMax)
-			
+
 			// Simulate processing time
 			time.Sleep(20 * time.Millisecond)
-			
+
 			mu.Lock()
 			concurrentRequests--
 			mu.Unlock()
-			
+
 			return &http.Response{
 				StatusCode: http.StatusOK,
 				Body: io.NopCloser(strings.NewReader(`{
@@ -371,17 +371,17 @@ func TestSemaphoreRateLimiting(t *testing.T) {
 
 	// Read captured output to drain pipe
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
+	_, _ = io.Copy(&buf, r)
 
 	// Verify requests were made
 	t.Logf("Total requests made: %d", totalRequests)
 	t.Logf("Final max concurrent requests: %d", maxConcurrent)
-	
+
 	// Verify all requests were made
 	if totalRequests != 10 {
 		t.Errorf("Expected 10 HTTP requests, got %d", totalRequests)
 	}
-	
+
 	// Verify semaphore limited concurrency
 	if maxConcurrent > 3 {
 		t.Errorf("Expected max concurrent requests to be <= 3, got %d", maxConcurrent)
@@ -455,14 +455,14 @@ func TestPerformanceMonitoring(t *testing.T) {
 			_ = time.Since(start)
 			_ = m.Alloc / 1024
 		}()
-		
+
 		// Simulate some work
 		time.Sleep(10 * time.Millisecond)
 	}
 
 	// Run the test function
 	testFunction()
-	
+
 	// Test passes if no panic occurs
 	// In a more sophisticated test, you would capture log output and verify it
 }
@@ -470,23 +470,23 @@ func TestPerformanceMonitoring(t *testing.T) {
 // TestConfigurableConcurrency tests the configurable concurrency feature
 func TestConfigurableConcurrency(t *testing.T) {
 	testCases := []struct {
-		name               string
-		maxConcurrency     int
+		name                string
+		maxConcurrency      int
 		expectedConcurrency int
 	}{
 		{
-			name:               "Default concurrency",
-			maxConcurrency:     0,
+			name:                "Default concurrency",
+			maxConcurrency:      0,
 			expectedConcurrency: 10,
 		},
 		{
-			name:               "Custom concurrency",
-			maxConcurrency:     5,
+			name:                "Custom concurrency",
+			maxConcurrency:      5,
 			expectedConcurrency: 5,
 		},
 		{
-			name:               "High concurrency",
-			maxConcurrency:     20,
+			name:                "High concurrency",
+			maxConcurrency:      20,
 			expectedConcurrency: 20,
 		},
 	}
@@ -567,7 +567,7 @@ func TestMemorySafetyInConcurrentProcessing(t *testing.T) {
 
 	// Read captured output
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
+	_, _ = io.Copy(&buf, r)
 
 	// Test passes if no race conditions or memory issues occur
 	// This is primarily a stress test for memory safety
@@ -576,7 +576,7 @@ func TestMemorySafetyInConcurrentProcessing(t *testing.T) {
 // TestResourceGroupResult tests the ResourceGroupResult struct
 func TestResourceGroupResult(t *testing.T) {
 	createdTime := time.Now()
-	
+
 	result := ResourceGroupResult{
 		ResourceGroup: ResourceGroup{
 			ID:       "/subscriptions/test/resourceGroups/test-rg",
@@ -647,7 +647,7 @@ func TestPrintResourceGroupResult(t *testing.T) {
 
 	// Read captured output
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
+	_, _ = io.Copy(&buf, r)
 	output := buf.String()
 
 	// Verify output contains expected information
@@ -716,7 +716,7 @@ func TestConcurrentProcessingWithResourceListing(t *testing.T) {
 
 	// Read captured output
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
+	_, _ = io.Copy(&buf, r)
 	output := buf.String()
 
 	// Verify output contains resource group information
