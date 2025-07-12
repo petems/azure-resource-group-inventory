@@ -8,11 +8,25 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+)
+
+// Pre-compiled regex patterns for better performance
+var (
+	defaultResourceGroupPattern = regexp.MustCompile(`^defaultresourcegroup-`)
+	dynamicsPattern            = regexp.MustCompile(`^dynamicsdeployments$`)
+	aksPattern                 = regexp.MustCompile(`^mc_.*_.*_.*$`)
+	azureBackupPattern         = regexp.MustCompile(`^azurebackuprg`)
+	networkWatcherPattern      = regexp.MustCompile(`^networkwatcherrg$`)
+	databricksPattern          = regexp.MustCompile(`^databricks-rg`)
+	microsoftNetworkPattern    = regexp.MustCompile(`^microsoft-network$`)
+	logAnalyticsPattern        = regexp.MustCompile(`^loganalyticsdefaultresources$`)
 )
 
 // HTTP client interface for testing
@@ -49,12 +63,20 @@ type ResourcesResponse struct {
 type Config struct {
 	SubscriptionID string
 	AccessToken    string
+	MaxConcurrency int
 }
 
 // Azure client struct
 type AzureClient struct {
 	Config     Config
 	HTTPClient HTTPClient
+}
+
+// ResourceGroupResult holds the result of processing a resource group
+type ResourceGroupResult struct {
+	ResourceGroup ResourceGroup
+	CreatedTime   *time.Time
+	Error         error
 }
 
 var config Config
@@ -80,6 +102,7 @@ func init() {
 	rootCmd.PersistentFlags().String("subscription-id", "", "Azure subscription ID")
 	rootCmd.PersistentFlags().String("access-token", "", "Azure access token")
 	rootCmd.PersistentFlags().Bool("list-resources", false, "List all resources in each resource group with their creation times")
+	rootCmd.PersistentFlags().Int("max-concurrency", 10, "Maximum number of concurrent API calls")
 
 	// Bind flags to viper
 	if err := viper.BindPFlag("subscription-id", rootCmd.PersistentFlags().Lookup("subscription-id")); err != nil {
@@ -91,6 +114,9 @@ func init() {
 	if err := viper.BindPFlag("list-resources", rootCmd.PersistentFlags().Lookup("list-resources")); err != nil {
 		log.Fatalf("Failed to bind list-resources flag: %v", err)
 	}
+	if err := viper.BindPFlag("max-concurrency", rootCmd.PersistentFlags().Lookup("max-concurrency")); err != nil {
+		log.Fatalf("Failed to bind max-concurrency flag: %v", err)
+	}
 }
 
 func initConfig() {
@@ -101,6 +127,7 @@ func initConfig() {
 	// Set defaults
 	config.SubscriptionID = viper.GetString("subscription-id")
 	config.AccessToken = viper.GetString("access-token")
+	config.MaxConcurrency = viper.GetInt("max-concurrency")
 
 	// If not provided via flags, try environment variables
 	if config.SubscriptionID == "" {
@@ -108,6 +135,9 @@ func initConfig() {
 	}
 	if config.AccessToken == "" {
 		config.AccessToken = os.Getenv("AZURE_ACCESS_TOKEN")
+	}
+	if config.MaxConcurrency == 0 {
+		config.MaxConcurrency = 10
 	}
 
 	// Validate required configuration
@@ -118,10 +148,17 @@ func initConfig() {
 		log.Fatal("Access token is required. Set via --access-token flag or AZURE_ACCESS_TOKEN environment variable")
 	}
 
-	// Initialize Azure client
+	// Initialize Azure client with optimized HTTP client
 	azureClient = &AzureClient{
-		Config:     config,
-		HTTPClient: &http.Client{Timeout: 30 * time.Second},
+		Config: config,
+		HTTPClient: &http.Client{
+			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:        100,
+				MaxIdleConnsPerHost: 10,
+				IdleConnTimeout:     90 * time.Second,
+			},
+		},
 	}
 }
 
@@ -158,11 +195,12 @@ type DefaultResourceGroupInfo struct {
 }
 
 // checkIfDefaultResourceGroup checks if a resource group name matches patterns of default resource groups
+// Now uses pre-compiled regex patterns for better performance
 func checkIfDefaultResourceGroup(name string) DefaultResourceGroupInfo {
-	name = strings.ToLower(name)
+	nameLower := strings.ToLower(name)
 	
 	// DefaultResourceGroup-XXX pattern
-	if matched, _ := regexp.MatchString(`^defaultresourcegroup-`, name); matched {
+	if defaultResourceGroupPattern.MatchString(nameLower) {
 		return DefaultResourceGroupInfo{
 			IsDefault:   true,
 			CreatedBy:   "Azure CLI / Cloud Shell / Visual Studio",
@@ -171,7 +209,7 @@ func checkIfDefaultResourceGroup(name string) DefaultResourceGroupInfo {
 	}
 	
 	// DynamicsDeployments pattern
-	if name == "dynamicsdeployments" {
+	if dynamicsPattern.MatchString(nameLower) {
 		return DefaultResourceGroupInfo{
 			IsDefault:   true,
 			CreatedBy:   "Microsoft Dynamics ERP",
@@ -180,7 +218,7 @@ func checkIfDefaultResourceGroup(name string) DefaultResourceGroupInfo {
 	}
 	
 	// MC_* pattern for AKS
-	if matched, _ := regexp.MatchString(`^mc_.*_.*_.*$`, name); matched {
+	if aksPattern.MatchString(nameLower) {
 		return DefaultResourceGroupInfo{
 			IsDefault:   true,
 			CreatedBy:   "Azure Kubernetes Service (AKS)",
@@ -189,7 +227,7 @@ func checkIfDefaultResourceGroup(name string) DefaultResourceGroupInfo {
 	}
 	
 	// AzureBackupRG* pattern
-	if matched, _ := regexp.MatchString(`^azurebackuprg`, name); matched {
+	if azureBackupPattern.MatchString(nameLower) {
 		return DefaultResourceGroupInfo{
 			IsDefault:   true,
 			CreatedBy:   "Azure Backup",
@@ -198,7 +236,7 @@ func checkIfDefaultResourceGroup(name string) DefaultResourceGroupInfo {
 	}
 	
 	// NetworkWatcherRG pattern
-	if name == "networkwatcherrg" {
+	if networkWatcherPattern.MatchString(nameLower) {
 		return DefaultResourceGroupInfo{
 			IsDefault:   true,
 			CreatedBy:   "Azure Network Watcher",
@@ -207,7 +245,7 @@ func checkIfDefaultResourceGroup(name string) DefaultResourceGroupInfo {
 	}
 	
 	// databricks-rg* pattern
-	if matched, _ := regexp.MatchString(`^databricks-rg`, name); matched {
+	if databricksPattern.MatchString(nameLower) {
 		return DefaultResourceGroupInfo{
 			IsDefault:   true,
 			CreatedBy:   "Azure Databricks",
@@ -216,7 +254,7 @@ func checkIfDefaultResourceGroup(name string) DefaultResourceGroupInfo {
 	}
 	
 	// microsoft-network pattern
-	if name == "microsoft-network" {
+	if microsoftNetworkPattern.MatchString(nameLower) {
 		return DefaultResourceGroupInfo{
 			IsDefault:   true,
 			CreatedBy:   "Microsoft Networking Services",
@@ -225,7 +263,7 @@ func checkIfDefaultResourceGroup(name string) DefaultResourceGroupInfo {
 	}
 	
 	// LogAnalyticsDefaultResources pattern
-	if name == "loganalyticsdefaultresources" {
+	if logAnalyticsPattern.MatchString(nameLower) {
 		return DefaultResourceGroupInfo{
 			IsDefault:   true,
 			CreatedBy:   "Azure Log Analytics",
@@ -241,6 +279,14 @@ func checkIfDefaultResourceGroup(name string) DefaultResourceGroupInfo {
 }
 
 func (ac *AzureClient) FetchResourceGroups() error {
+	// Performance monitoring
+	start := time.Now()
+	defer func() {
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		log.Printf("Operation completed in %v, Memory usage: %d KB", time.Since(start), m.Alloc/1024)
+	}()
+
 	fmt.Println("Fetching resource groups...")
 
 	// Fetch all resource groups
@@ -271,41 +317,98 @@ func (ac *AzureClient) FetchResourceGroups() error {
 	// Check if we should list resources
 	listResources := viper.GetBool("list-resources")
 
-	// For each resource group, fetch its creation time
-	for _, rg := range rgResponse.Value {
-		fmt.Printf("Resource Group: %s\n", rg.Name)
-		fmt.Printf("  Location: %s\n", rg.Location)
-		fmt.Printf("  Provisioning State: %s\n", rg.Properties.ProvisioningState)
-
-		// Check if this is a default resource group
-		defaultInfo := checkIfDefaultResourceGroup(rg.Name)
-		if defaultInfo.IsDefault {
-			fmt.Printf("  🔍 DEFAULT RESOURCE GROUP DETECTED\n")
-			fmt.Printf("  📋 Created By: %s\n", defaultInfo.CreatedBy)
-			fmt.Printf("  📝 Description: %s\n", defaultInfo.Description)
-		}
-
-		if listResources {
-			// List all resources in this resource group
-			if err := ac.listResourcesInGroup(rg.Name); err != nil {
-				fmt.Printf("  Error listing resources: %v\n", err)
-			}
-		} else {
-			// Just show the earliest creation time
-			createdTime, err := ac.fetchResourceGroupCreatedTime(rg.Name)
-			if err != nil {
-				fmt.Printf("  Created Time: Error fetching (%v)\n", err)
-			} else if createdTime != nil {
-				fmt.Printf("  Created Time: %s\n", createdTime.Format(time.RFC3339))
-			} else {
-				fmt.Printf("  Created Time: Not available\n")
-			}
-		}
-
-		fmt.Println()
+	// Process resource groups concurrently
+	if listResources {
+		ac.processResourceGroupsConcurrentlyWithResources(rgResponse.Value)
+	} else {
+		ac.processResourceGroupsConcurrently(rgResponse.Value)
 	}
 
 	return nil
+}
+
+// processResourceGroupsConcurrently processes resource groups concurrently for better performance
+func (ac *AzureClient) processResourceGroupsConcurrently(resourceGroups []ResourceGroup) {
+	var wg sync.WaitGroup
+	results := make([]ResourceGroupResult, len(resourceGroups))
+	
+	// Use a semaphore to limit concurrent goroutines
+	semaphore := make(chan struct{}, ac.Config.MaxConcurrency)
+
+	// Start workers
+	for i, rg := range resourceGroups {
+		wg.Add(1)
+		go func(i int, rg ResourceGroup) {
+			defer wg.Done()
+			
+			// Acquire semaphore
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			createdTime, err := ac.fetchResourceGroupCreatedTime(rg.Name)
+			results[i] = ResourceGroupResult{
+				ResourceGroup: rg,
+				CreatedTime:   createdTime,
+				Error:         err,
+			}
+		}(i, rg)
+	}
+
+	// Wait for all workers to complete
+	wg.Wait()
+
+	// Print all results
+	for _, result := range results {
+		ac.printResourceGroupResult(result, false)
+	}
+}
+
+// processResourceGroupsConcurrentlyWithResources processes resource groups with detailed resource listing
+func (ac *AzureClient) processResourceGroupsConcurrentlyWithResources(resourceGroups []ResourceGroup) {
+	// For resource listing, we don't need concurrency for the initial setup
+	// The concurrency will be handled by the resource listing itself
+	for _, rg := range resourceGroups {
+		result := ResourceGroupResult{
+			ResourceGroup: rg,
+			CreatedTime:   nil, // Will be handled in resource listing
+			Error:         nil,
+		}
+		ac.printResourceGroupResult(result, true)
+	}
+}
+
+// printResourceGroupResult prints the result of processing a resource group
+func (ac *AzureClient) printResourceGroupResult(result ResourceGroupResult, listResources bool) {
+	rg := result.ResourceGroup
+	fmt.Printf("Resource Group: %s\n", rg.Name)
+	fmt.Printf("  Location: %s\n", rg.Location)
+	fmt.Printf("  Provisioning State: %s\n", rg.Properties.ProvisioningState)
+
+	// Check if this is a default resource group
+	defaultInfo := checkIfDefaultResourceGroup(rg.Name)
+	if defaultInfo.IsDefault {
+		fmt.Printf("  🔍 DEFAULT RESOURCE GROUP DETECTED\n")
+		fmt.Printf("  📋 Created By: %s\n", defaultInfo.CreatedBy)
+		fmt.Printf("  📝 Description: %s\n", defaultInfo.Description)
+	}
+
+	if listResources {
+		// List all resources in this resource group
+		if err := ac.listResourcesInGroup(rg.Name); err != nil {
+			fmt.Printf("  Error listing resources: %v\n", err)
+		}
+	} else {
+		// Just show the creation time
+		if result.Error != nil {
+			fmt.Printf("  Created Time: Error fetching (%v)\n", result.Error)
+		} else if result.CreatedTime != nil {
+			fmt.Printf("  Created Time: %s\n", result.CreatedTime.Format(time.RFC3339))
+		} else {
+			fmt.Printf("  Created Time: Not available\n")
+		}
+	}
+
+	fmt.Println()
 }
 
 func (ac *AzureClient) fetchResourceGroupCreatedTime(resourceGroupName string) (*time.Time, error) {
