@@ -399,6 +399,87 @@ func TestInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestMaxConcurrencyValidation(t *testing.T) {
+	testCases := []struct {
+		name                  string
+		inputMaxConcurrency   int
+		expectedMaxConcurrency int
+	}{
+		{
+			name:                  "Valid concurrency",
+			inputMaxConcurrency:   5,
+			expectedMaxConcurrency: 5,
+		},
+		{
+			name:                  "Zero concurrency should be set to 1",
+			inputMaxConcurrency:   0,
+			expectedMaxConcurrency: 1,
+		},
+		{
+			name:                  "Negative concurrency should be set to 1",
+			inputMaxConcurrency:   -5,
+			expectedMaxConcurrency: 1,
+		},
+		{
+			name:                  "Minimum valid concurrency",
+			inputMaxConcurrency:   1,
+			expectedMaxConcurrency: 1,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Test the validation function directly
+			result := validateConcurrency(tc.inputMaxConcurrency)
+			
+			if result != tc.expectedMaxConcurrency {
+				t.Errorf("Expected validateConcurrency(%d) to return %d, but got %d", 
+					tc.inputMaxConcurrency, tc.expectedMaxConcurrency, result)
+			}
+
+			// Also test that the validation prevents hanging in actual usage
+			client := &AzureClient{
+				Config: Config{
+					SubscriptionID: "test-subscription",
+					AccessToken:    "test-token",
+					MaxConcurrency: tc.inputMaxConcurrency,
+				},
+			}
+
+			// Test the validation by calling processResourceGroupsConcurrently
+			// which contains the validation logic
+			resourceGroups := []ResourceGroup{
+				{
+					Name:     "test-rg",
+					Location: "eastus",
+					Properties: struct {
+						ProvisioningState string `json:"provisioningState"`
+					}{
+						ProvisioningState: "Succeeded",
+					},
+				},
+			}
+
+			// Create a mock client for the test
+			mockClient := &MockHTTPClient{
+				DoFunc: func(req *http.Request) (*http.Response, error) {
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Body:       io.NopCloser(strings.NewReader(`{"value": []}`)),
+					}, nil
+				},
+			}
+			client.HTTPClient = mockClient
+
+			// This should not hang regardless of the input MaxConcurrency
+			client.processResourceGroupsConcurrently(resourceGroups)
+
+			// The test passes if we reach this point without hanging
+			t.Log("Test completed successfully - no hanging occurred")
+		})
+	}
+}
+
 func TestCheckIfDefaultResourceGroup(t *testing.T) {
 	testCases := []struct {
 		name                string

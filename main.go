@@ -102,7 +102,7 @@ func init() {
 	rootCmd.PersistentFlags().String("subscription-id", "", "Azure subscription ID")
 	rootCmd.PersistentFlags().String("access-token", "", "Azure access token")
 	rootCmd.PersistentFlags().Bool("list-resources", false, "List all resources in each resource group with their creation times")
-	rootCmd.PersistentFlags().Int("max-concurrency", 10, "Maximum number of concurrent API calls")
+	rootCmd.PersistentFlags().Int("max-concurrency", 10, "Maximum number of concurrent API calls (minimum: 1)")
 
 	// Bind flags to viper
 	if err := viper.BindPFlag("subscription-id", rootCmd.PersistentFlags().Lookup("subscription-id")); err != nil {
@@ -147,6 +147,9 @@ func initConfig() {
 	if config.AccessToken == "" {
 		log.Fatal("Access token is required. Set via --access-token flag or AZURE_ACCESS_TOKEN environment variable")
 	}
+	
+	// Validate concurrency configuration to prevent hanging
+	config.MaxConcurrency = validateConcurrency(config.MaxConcurrency)
 
 	// Initialize Azure client with optimized HTTP client
 	azureClient = &AzureClient{
@@ -192,6 +195,16 @@ type DefaultResourceGroupInfo struct {
 	IsDefault   bool
 	CreatedBy   string
 	Description string
+}
+
+// validateConcurrency ensures that the concurrency value is at least 1
+// to prevent hanging due to zero-capacity channels
+func validateConcurrency(concurrency int) int {
+	if concurrency < 1 {
+		log.Printf("Warning: Concurrency (%d) is less than 1, setting to 1 to prevent hanging", concurrency)
+		return 1
+	}
+	return concurrency
 }
 
 // checkIfDefaultResourceGroup checks if a resource group name matches patterns of default resource groups
@@ -333,10 +346,7 @@ func (ac *AzureClient) processResourceGroupsConcurrently(resourceGroups []Resour
 	results := make([]ResourceGroupResult, len(resourceGroups))
 
 	// Ensure MaxConcurrency is at least 1 to prevent hanging
-	maxConcurrency := ac.Config.MaxConcurrency
-	if maxConcurrency <= 0 {
-		maxConcurrency = 1
-	}
+	maxConcurrency := validateConcurrency(ac.Config.MaxConcurrency)
 
 	// Use a semaphore to limit concurrent goroutines
 	semaphore := make(chan struct{}, maxConcurrency)
