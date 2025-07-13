@@ -130,3 +130,4 @@ azure-rg-cli-*
 # OS
 .DS_Store
 Thumbs.db
+results.csv

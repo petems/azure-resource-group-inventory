@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -64,6 +65,7 @@ type Config struct {
 	SubscriptionID string
 	AccessToken    string
 	MaxConcurrency int
+	OutputCSV      string
 }
 
 // Azure client struct
@@ -103,6 +105,7 @@ func init() {
 	rootCmd.PersistentFlags().String("access-token", "", "Azure access token")
 	rootCmd.PersistentFlags().Bool("list-resources", false, "List all resources in each resource group with their creation times")
 	rootCmd.PersistentFlags().Int("max-concurrency", 10, "Maximum number of concurrent API calls (minimum: 1)")
+	rootCmd.PersistentFlags().String("output-csv", "", "Output results to CSV file (specify file path)")
 
 	// Bind flags to viper
 	if err := viper.BindPFlag("subscription-id", rootCmd.PersistentFlags().Lookup("subscription-id")); err != nil {
@@ -117,6 +120,9 @@ func init() {
 	if err := viper.BindPFlag("max-concurrency", rootCmd.PersistentFlags().Lookup("max-concurrency")); err != nil {
 		log.Fatalf("Failed to bind max-concurrency flag: %v", err)
 	}
+	if err := viper.BindPFlag("output-csv", rootCmd.PersistentFlags().Lookup("output-csv")); err != nil {
+		log.Fatalf("Failed to bind output-csv flag: %v", err)
+	}
 }
 
 func initConfig() {
@@ -128,6 +134,7 @@ func initConfig() {
 	config.SubscriptionID = viper.GetString("subscription-id")
 	config.AccessToken = viper.GetString("access-token")
 	config.MaxConcurrency = viper.GetInt("max-concurrency")
+	config.OutputCSV = viper.GetString("output-csv")
 
 	// If not provided via flags, try environment variables
 	if config.SubscriptionID == "" {
@@ -330,11 +337,35 @@ func (ac *AzureClient) FetchResourceGroups() error {
 	// Check if we should list resources
 	listResources := viper.GetBool("list-resources")
 
+	// Check if CSV output is enabled
+	outputCSV := ac.Config.OutputCSV != ""
+
+	var csvData []CSVRow
+	if outputCSV {
+		csvData = make([]CSVRow, 0, len(rgResponse.Value))
+	}
+
 	// Process resource groups concurrently
 	if listResources {
-		ac.processResourceGroupsConcurrentlyWithResources(rgResponse.Value)
+		if outputCSV {
+			csvData = ac.processResourceGroupsConcurrentlyWithResourcesCSV(rgResponse.Value)
+		} else {
+			ac.processResourceGroupsConcurrentlyWithResources(rgResponse.Value)
+		}
 	} else {
-		ac.processResourceGroupsConcurrently(rgResponse.Value)
+		if outputCSV {
+			csvData = ac.processResourceGroupsConcurrentlyCSV(rgResponse.Value)
+		} else {
+			ac.processResourceGroupsConcurrently(rgResponse.Value)
+		}
+	}
+
+	// Write CSV data if output is enabled
+	if outputCSV {
+		if err := ac.writeCSVFile(csvData); err != nil {
+			return fmt.Errorf("failed to write CSV file: %w", err)
+		}
+		fmt.Printf("CSV output written to: %s\n", ac.Config.OutputCSV)
 	}
 
 	return nil
@@ -500,6 +531,253 @@ func (ac *AzureClient) listResourcesInGroup(resourceGroupName string) error {
 			fmt.Printf("      Created: %s\n", resource.CreatedTime.Format(time.RFC3339))
 		} else {
 			fmt.Printf("      Created: Not available\n")
+		}
+	}
+
+	return nil
+}
+
+// CSV Row structure for output
+type CSVRow struct {
+	ResourceGroupName        string
+	Location                 string
+	ProvisioningState        string
+	CreatedTime              string
+	IsDefault                string
+	CreatedBy                string
+	Description              string
+	Resources                string
+}
+
+// processResourceGroupsConcurrentlyCSV processes resource groups concurrently and returns CSV data
+func (ac *AzureClient) processResourceGroupsConcurrentlyCSV(resourceGroups []ResourceGroup) []CSVRow {
+	var wg sync.WaitGroup
+	results := make([]ResourceGroupResult, len(resourceGroups))
+
+	// Ensure MaxConcurrency is at least 1 to prevent hanging
+	maxConcurrency := validateConcurrency(ac.Config.MaxConcurrency)
+
+	// Use a semaphore to limit concurrent goroutines
+	semaphore := make(chan struct{}, maxConcurrency)
+
+	// Start workers
+	for i, rg := range resourceGroups {
+		wg.Add(1)
+		go func(i int, rg ResourceGroup) {
+			defer wg.Done()
+
+			// Acquire semaphore
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			createdTime, err := ac.fetchResourceGroupCreatedTime(rg.Name)
+			results[i] = ResourceGroupResult{
+				ResourceGroup: rg,
+				CreatedTime:   createdTime,
+				Error:         err,
+			}
+		}(i, rg)
+	}
+
+	// Wait for all workers to complete
+	wg.Wait()
+
+	// Convert results to CSV format
+	csvData := make([]CSVRow, 0, len(results))
+	for _, result := range results {
+		csvRow := ac.convertToCSVRow(result, false, nil)
+		csvData = append(csvData, csvRow)
+		// Also print to console
+		ac.printResourceGroupResult(result, false)
+	}
+
+	return csvData
+}
+
+// processResourceGroupsConcurrentlyWithResourcesCSV processes resource groups with resources and returns CSV data
+func (ac *AzureClient) processResourceGroupsConcurrentlyWithResourcesCSV(resourceGroups []ResourceGroup) []CSVRow {
+	csvData := make([]CSVRow, 0, len(resourceGroups))
+
+	for _, rg := range resourceGroups {
+		// Fetch resources for this resource group
+		resources, err := ac.fetchResourcesInGroup(rg.Name)
+		if err != nil {
+			// Create a result with error
+			result := ResourceGroupResult{
+				ResourceGroup: rg,
+				CreatedTime:   nil,
+				Error:         err,
+			}
+			csvRow := ac.convertToCSVRow(result, true, nil)
+			csvData = append(csvData, csvRow)
+			ac.printResourceGroupResult(result, true)
+			continue
+		}
+
+		// Create result with resources
+		result := ResourceGroupResult{
+			ResourceGroup: rg,
+			CreatedTime:   nil, // Will be calculated from resources
+			Error:         nil,
+		}
+		csvRow := ac.convertToCSVRow(result, true, resources)
+		csvData = append(csvData, csvRow)
+		ac.printResourceGroupResultWithResources(result, resources)
+	}
+
+	return csvData
+}
+
+// fetchResourcesInGroup fetches resources in a resource group and returns them
+func (ac *AzureClient) fetchResourcesInGroup(resourceGroupName string) ([]Resource, error) {
+	url := fmt.Sprintf("https://management.azure.com/subscriptions/%s/resourceGroups/%s/resources?$expand=createdTime&api-version=2019-10-01",
+		ac.Config.SubscriptionID, resourceGroupName)
+
+	resp, err := ac.makeAzureRequest(url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch resources: %w", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("Warning: failed to close response body: %v", err)
+		}
+	}()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	var resourcesResponse ResourcesResponse
+	if err := json.Unmarshal(body, &resourcesResponse); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return resourcesResponse.Value, nil
+}
+
+// convertToCSVRow converts a ResourceGroupResult to a CSVRow
+func (ac *AzureClient) convertToCSVRow(result ResourceGroupResult, listResources bool, resources []Resource) CSVRow {
+	rg := result.ResourceGroup
+	
+	// Check if this is a default resource group
+	defaultInfo := checkIfDefaultResourceGroup(rg.Name)
+	
+	// Format created time
+	createdTimeStr := ""
+	if result.Error != nil {
+		createdTimeStr = "Error: " + result.Error.Error()
+	} else if result.CreatedTime != nil {
+		createdTimeStr = result.CreatedTime.Format(time.RFC3339)
+	} else {
+		createdTimeStr = "Not available"
+	}
+
+	// Format resources as a single field if listResources is true
+	resourcesStr := ""
+	if listResources && resources != nil {
+		resourcesList := make([]string, 0, len(resources))
+		for _, resource := range resources {
+			resourceInfo := fmt.Sprintf("%s (%s)", resource.Name, resource.Type)
+			if resource.CreatedTime != nil {
+				resourceInfo += " - Created: " + resource.CreatedTime.Format(time.RFC3339)
+			} else {
+				resourceInfo += " - Created: Not available"
+			}
+			resourcesList = append(resourcesList, resourceInfo)
+		}
+		resourcesStr = strings.Join(resourcesList, "; ")
+	}
+
+	return CSVRow{
+		ResourceGroupName: rg.Name,
+		Location:          rg.Location,
+		ProvisioningState: rg.Properties.ProvisioningState,
+		CreatedTime:       createdTimeStr,
+		IsDefault:         fmt.Sprintf("%v", defaultInfo.IsDefault),
+		CreatedBy:         defaultInfo.CreatedBy,
+		Description:       defaultInfo.Description,
+		Resources:         resourcesStr,
+	}
+}
+
+// printResourceGroupResultWithResources prints a resource group result with resources
+func (ac *AzureClient) printResourceGroupResultWithResources(result ResourceGroupResult, resources []Resource) {
+	rg := result.ResourceGroup
+	fmt.Printf("Resource Group: %s\n", rg.Name)
+	fmt.Printf("  Location: %s\n", rg.Location)
+	fmt.Printf("  Provisioning State: %s\n", rg.Properties.ProvisioningState)
+
+	// Check if this is a default resource group
+	defaultInfo := checkIfDefaultResourceGroup(rg.Name)
+	if defaultInfo.IsDefault {
+		fmt.Printf("  🔍 DEFAULT RESOURCE GROUP DETECTED\n")
+		fmt.Printf("  📋 Created By: %s\n", defaultInfo.CreatedBy)
+		fmt.Printf("  📝 Description: %s\n", defaultInfo.Description)
+	}
+
+	// Print resources
+	if len(resources) == 0 {
+		fmt.Printf("  No resources found in this resource group\n")
+	} else {
+		fmt.Printf("  Resources (%d):\n", len(resources))
+		for _, resource := range resources {
+			fmt.Printf("    - %s (%s)\n", resource.Name, resource.Type)
+			if resource.CreatedTime != nil {
+				fmt.Printf("      Created: %s\n", resource.CreatedTime.Format(time.RFC3339))
+			} else {
+				fmt.Printf("      Created: Not available\n")
+			}
+		}
+	}
+
+	fmt.Println()
+}
+
+// writeCSVFile writes CSV data to the specified file
+func (ac *AzureClient) writeCSVFile(csvData []CSVRow) error {
+	file, err := os.Create(ac.Config.OutputCSV)
+	if err != nil {
+		return fmt.Errorf("failed to create CSV file: %w", err)
+	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			log.Printf("Warning: failed to close CSV file: %v", err)
+		}
+	}()
+
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+
+	// Write header
+	header := []string{
+		"ResourceGroupName",
+		"Location",
+		"ProvisioningState",
+		"CreatedTime",
+		"IsDefault",
+		"CreatedBy",
+		"Description",
+		"Resources",
+	}
+	if err := writer.Write(header); err != nil {
+		return fmt.Errorf("failed to write CSV header: %w", err)
+	}
+
+	// Write data rows
+	for _, row := range csvData {
+		record := []string{
+			row.ResourceGroupName,
+			row.Location,
+			row.ProvisioningState,
+			row.CreatedTime,
+			row.IsDefault,
+			row.CreatedBy,
+			row.Description,
+			row.Resources,
+		}
+		if err := writer.Write(record); err != nil {
+			return fmt.Errorf("failed to write CSV row: %w", err)
 		}
 	}
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/spf13/viper"
 )
 
 // Mock HTTP client for testing
@@ -761,5 +764,580 @@ func TestFetchResourceGroupsWithDefaultDetection(t *testing.T) {
 	}
 	if !strings.Contains(outputStr, "my-custom-rg") {
 		t.Error("Expected output to contain 'my-custom-rg'")
+	}
+}
+
+func TestCSVOutputWithoutResources(t *testing.T) {
+	// Create a temporary CSV file
+	tempFile, err := os.CreateTemp("", "test_output_*.csv")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer func() {
+		if err := tempFile.Close(); err != nil {
+			t.Errorf("Failed to close temp file: %v", err)
+		}
+		if err := os.Remove(tempFile.Name()); err != nil {
+			t.Errorf("Failed to remove temp file: %v", err)
+		}
+	}()
+
+	// Create mock HTTP client
+	mockClient := &MockHTTPClient{
+		DoFunc: func(req *http.Request) (*http.Response, error) {
+			if strings.Contains(req.URL.Path, "resourcegroups") {
+				// Return resource groups including default ones
+				resp := &http.Response{
+					StatusCode: http.StatusOK,
+					Body: io.NopCloser(strings.NewReader(`{
+						"value": [
+							{
+								"id": "/subscriptions/test/resourceGroups/test-rg-1",
+								"name": "test-rg-1",
+								"location": "eastus",
+								"properties": {
+									"provisioningState": "Succeeded"
+								}
+							},
+							{
+								"id": "/subscriptions/test/resourceGroups/DefaultResourceGroup-EUS",
+								"name": "DefaultResourceGroup-EUS",
+								"location": "eastus",
+								"properties": {
+									"provisioningState": "Succeeded"
+								}
+							}
+						]
+					}`)),
+				}
+				return resp, nil
+			} else {
+				// Return resources for created time lookup
+				resp := &http.Response{
+					StatusCode: http.StatusOK,
+					Body: io.NopCloser(strings.NewReader(`{
+						"value": [
+							{
+								"id": "/subscriptions/test/resourceGroups/test-rg-1/providers/Microsoft.Storage/storageAccounts/test",
+								"name": "test-storage",
+								"type": "Microsoft.Storage/storageAccounts",
+								"createdTime": "2023-01-01T12:00:00Z"
+							}
+						]
+					}`)),
+				}
+				return resp, nil
+			}
+		},
+	}
+
+	// Create Azure client with mock HTTP client
+	client := &AzureClient{
+		Config: Config{
+			SubscriptionID: "test-subscription",
+			AccessToken:    "test-token",
+			MaxConcurrency: 10,
+			OutputCSV:      tempFile.Name(),
+		},
+		HTTPClient: mockClient,
+	}
+
+	// Test the function
+	err = client.FetchResourceGroups()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Read and verify CSV file
+	csvContent, err := os.ReadFile(tempFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to read CSV file: %v", err)
+	}
+
+	csvStr := string(csvContent)
+	// Check header
+	if !strings.Contains(csvStr, "ResourceGroupName,Location,ProvisioningState,CreatedTime,IsDefault,CreatedBy,Description,Resources") {
+		t.Error("Expected CSV header not found")
+	}
+	// Check data
+	if !strings.Contains(csvStr, "test-rg-1,eastus,Succeeded") {
+		t.Error("Expected resource group data not found in CSV")
+	}
+	if !strings.Contains(csvStr, "DefaultResourceGroup-EUS,eastus,Succeeded") {
+		t.Error("Expected default resource group data not found in CSV")
+	}
+	// Check default resource group detection
+	if !strings.Contains(csvStr, "true,Azure CLI / Cloud Shell / Visual Studio") {
+		t.Error("Expected default resource group detection not found in CSV")
+	}
+}
+
+func TestCSVOutputWithResources(t *testing.T) {
+	// Create a temporary CSV file
+	tempFile, err := os.CreateTemp("", "test_output_resources_*.csv")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer func() {
+		if err := tempFile.Close(); err != nil {
+			t.Errorf("Failed to close temp file: %v", err)
+		}
+		if err := os.Remove(tempFile.Name()); err != nil {
+			t.Errorf("Failed to remove temp file: %v", err)
+		}
+	}()
+
+	// Create mock HTTP client
+	mockClient := &MockHTTPClient{
+		DoFunc: func(req *http.Request) (*http.Response, error) {
+			if strings.Contains(req.URL.Path, "resourcegroups") {
+				// Return resource groups
+				resp := &http.Response{
+					StatusCode: http.StatusOK,
+					Body: io.NopCloser(strings.NewReader(`{
+						"value": [
+							{
+								"id": "/subscriptions/test/resourceGroups/test-rg-1",
+								"name": "test-rg-1",
+								"location": "eastus",
+								"properties": {
+									"provisioningState": "Succeeded"
+								}
+							}
+						]
+					}`)),
+				}
+				return resp, nil
+			} else {
+				// Return resources for the resource group
+				resp := &http.Response{
+					StatusCode: http.StatusOK,
+					Body: io.NopCloser(strings.NewReader(`{
+						"value": [
+							{
+								"id": "/subscriptions/test/resourceGroups/test-rg-1/providers/Microsoft.Storage/storageAccounts/test-storage",
+								"name": "test-storage",
+								"type": "Microsoft.Storage/storageAccounts",
+								"createdTime": "2023-01-01T12:00:00Z"
+							},
+							{
+								"id": "/subscriptions/test/resourceGroups/test-rg-1/providers/Microsoft.Web/sites/test-app",
+								"name": "test-app",
+								"type": "Microsoft.Web/sites",
+								"createdTime": "2023-01-02T12:00:00Z"
+							}
+						]
+					}`)),
+				}
+				return resp, nil
+			}
+		},
+	}
+
+	// Create Azure client with mock HTTP client
+	client := &AzureClient{
+		Config: Config{
+			SubscriptionID: "test-subscription",
+			AccessToken:    "test-token",
+			MaxConcurrency: 10,
+			OutputCSV:      tempFile.Name(),
+		},
+		HTTPClient: mockClient,
+	}
+
+	// Set list-resources flag using viper
+	viper.Set("list-resources", true)
+	defer viper.Set("list-resources", false) // Reset after test
+	
+	// Test the function with list-resources enabled
+	err = client.FetchResourceGroups()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Read and verify CSV file
+	csvContent, err := os.ReadFile(tempFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to read CSV file: %v", err)
+	}
+
+	csvStr := string(csvContent)
+	// Check that resources are in a single field
+	if !strings.Contains(csvStr, "test-storage (Microsoft.Storage/storageAccounts)") {
+		t.Error("Expected first resource not found in CSV")
+	}
+	if !strings.Contains(csvStr, "test-app (Microsoft.Web/sites)") {
+		t.Error("Expected second resource not found in CSV")
+	}
+	// Check that resources are separated by semicolon
+	if !strings.Contains(csvStr, "; ") {
+		t.Error("Expected resources to be separated by semicolon in CSV")
+	}
+	// Check that created times are included
+	if !strings.Contains(csvStr, "Created: 2023-01-01T12:00:00Z") {
+		t.Error("Expected resource created time not found in CSV")
+	}
+}
+
+func TestCSVOutputWithEmptyResourceGroup(t *testing.T) {
+	// Create a temporary CSV file
+	tempFile, err := os.CreateTemp("", "test_output_empty_*.csv")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer func() {
+		if err := tempFile.Close(); err != nil {
+			t.Errorf("Failed to close temp file: %v", err)
+		}
+		if err := os.Remove(tempFile.Name()); err != nil {
+			t.Errorf("Failed to remove temp file: %v", err)
+		}
+	}()
+
+	// Create mock HTTP client
+	mockClient := &MockHTTPClient{
+		DoFunc: func(req *http.Request) (*http.Response, error) {
+			if strings.Contains(req.URL.Path, "resourcegroups") {
+				// Return resource groups
+				resp := &http.Response{
+					StatusCode: http.StatusOK,
+					Body: io.NopCloser(strings.NewReader(`{
+						"value": [
+							{
+								"id": "/subscriptions/test/resourceGroups/empty-rg",
+								"name": "empty-rg",
+								"location": "eastus",
+								"properties": {
+									"provisioningState": "Succeeded"
+								}
+							}
+						]
+					}`)),
+				}
+				return resp, nil
+			} else {
+				// Return empty resources
+				resp := &http.Response{
+					StatusCode: http.StatusOK,
+					Body: io.NopCloser(strings.NewReader(`{
+						"value": []
+					}`)),
+				}
+				return resp, nil
+			}
+		},
+	}
+
+	// Create Azure client with mock HTTP client
+	client := &AzureClient{
+		Config: Config{
+			SubscriptionID: "test-subscription",
+			AccessToken:    "test-token",
+			MaxConcurrency: 10,
+			OutputCSV:      tempFile.Name(),
+		},
+		HTTPClient: mockClient,
+	}
+
+	// Test the function
+	err = client.FetchResourceGroups()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Read and verify CSV file
+	csvContent, err := os.ReadFile(tempFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to read CSV file: %v", err)
+	}
+
+	csvStr := string(csvContent)
+	// Check that empty resource group is handled correctly
+	if !strings.Contains(csvStr, "empty-rg,eastus,Succeeded") {
+		t.Error("Expected empty resource group data not found in CSV")
+	}
+	// Check that created time is "Not available" for empty resource group
+	if !strings.Contains(csvStr, "Not available") {
+		t.Error("Expected 'Not available' for empty resource group created time")
+	}
+}
+
+func TestConvertToCSVRow(t *testing.T) {
+	client := &AzureClient{
+		Config: Config{
+			SubscriptionID: "test-subscription",
+			AccessToken:    "test-token",
+			MaxConcurrency: 10,
+		},
+	}
+
+	// Test with a regular resource group
+	rg := ResourceGroup{
+		Name:     "test-rg",
+		Location: "eastus",
+		Properties: struct {
+			ProvisioningState string `json:"provisioningState"`
+		}{
+			ProvisioningState: "Succeeded",
+		},
+	}
+
+	createdTime, _ := time.Parse(time.RFC3339, "2023-01-01T12:00:00Z")
+	result := ResourceGroupResult{
+		ResourceGroup: rg,
+		CreatedTime:   &createdTime,
+		Error:         nil,
+	}
+
+	// Test without resources
+	csvRow := client.convertToCSVRow(result, false, nil)
+	if csvRow.ResourceGroupName != "test-rg" {
+		t.Errorf("Expected ResourceGroupName 'test-rg', got '%s'", csvRow.ResourceGroupName)
+	}
+	if csvRow.Location != "eastus" {
+		t.Errorf("Expected Location 'eastus', got '%s'", csvRow.Location)
+	}
+	if csvRow.ProvisioningState != "Succeeded" {
+		t.Errorf("Expected ProvisioningState 'Succeeded', got '%s'", csvRow.ProvisioningState)
+	}
+	if csvRow.CreatedTime != "2023-01-01T12:00:00Z" {
+		t.Errorf("Expected CreatedTime '2023-01-01T12:00:00Z', got '%s'", csvRow.CreatedTime)
+	}
+	if csvRow.IsDefault != "false" {
+		t.Errorf("Expected IsDefault 'false', got '%s'", csvRow.IsDefault)
+	}
+	if csvRow.Resources != "" {
+		t.Errorf("Expected empty Resources, got '%s'", csvRow.Resources)
+	}
+
+	// Test with resources
+	resources := []Resource{
+		{
+			Name:        "test-storage",
+			Type:        "Microsoft.Storage/storageAccounts",
+			CreatedTime: &createdTime,
+		},
+		{
+			Name:        "test-app",
+			Type:        "Microsoft.Web/sites",
+			CreatedTime: nil,
+		},
+	}
+
+	csvRow = client.convertToCSVRow(result, true, resources)
+	expectedResources := "test-storage (Microsoft.Storage/storageAccounts) - Created: 2023-01-01T12:00:00Z; test-app (Microsoft.Web/sites) - Created: Not available"
+	if csvRow.Resources != expectedResources {
+		t.Errorf("Expected Resources '%s', got '%s'", expectedResources, csvRow.Resources)
+	}
+
+	// Test with default resource group
+	defaultRG := ResourceGroup{
+		Name:     "DefaultResourceGroup-EUS",
+		Location: "eastus",
+		Properties: struct {
+			ProvisioningState string `json:"provisioningState"`
+		}{
+			ProvisioningState: "Succeeded",
+		},
+	}
+
+	defaultResult := ResourceGroupResult{
+		ResourceGroup: defaultRG,
+		CreatedTime:   &createdTime,
+		Error:         nil,
+	}
+
+	csvRow = client.convertToCSVRow(defaultResult, false, nil)
+	if csvRow.IsDefault != "true" {
+		t.Errorf("Expected IsDefault 'true', got '%s'", csvRow.IsDefault)
+	}
+	if csvRow.CreatedBy != "Azure CLI / Cloud Shell / Visual Studio" {
+		t.Errorf("Expected CreatedBy 'Azure CLI / Cloud Shell / Visual Studio', got '%s'", csvRow.CreatedBy)
+	}
+	if csvRow.Description == "" {
+		t.Error("Expected non-empty Description for default resource group")
+	}
+
+	// Test with error
+	errorResult := ResourceGroupResult{
+		ResourceGroup: rg,
+		CreatedTime:   nil,
+		Error:         fmt.Errorf("test error"),
+	}
+
+	csvRow = client.convertToCSVRow(errorResult, false, nil)
+	if !strings.Contains(csvRow.CreatedTime, "Error: test error") {
+		t.Errorf("Expected CreatedTime to contain error, got '%s'", csvRow.CreatedTime)
+	}
+}
+
+func TestWriteCSVFile(t *testing.T) {
+	// Create a temporary CSV file
+	tempFile, err := os.CreateTemp("", "test_write_csv_*.csv")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer func() {
+		if err := tempFile.Close(); err != nil {
+			t.Errorf("Failed to close temp file: %v", err)
+		}
+		if err := os.Remove(tempFile.Name()); err != nil {
+			t.Errorf("Failed to remove temp file: %v", err)
+		}
+	}()
+
+	client := &AzureClient{
+		Config: Config{
+			SubscriptionID: "test-subscription",
+			AccessToken:    "test-token",
+			MaxConcurrency: 10,
+			OutputCSV:      tempFile.Name(),
+		},
+	}
+
+	// Test data
+	csvData := []CSVRow{
+		{
+			ResourceGroupName: "test-rg-1",
+			Location:          "eastus",
+			ProvisioningState: "Succeeded",
+			CreatedTime:       "2023-01-01T12:00:00Z",
+			IsDefault:         "false",
+			CreatedBy:         "",
+			Description:       "",
+			Resources:         "",
+		},
+		{
+			ResourceGroupName: "DefaultResourceGroup-EUS",
+			Location:          "eastus",
+			ProvisioningState: "Succeeded",
+			CreatedTime:       "2023-01-01T12:00:00Z",
+			IsDefault:         "true",
+			CreatedBy:         "Azure CLI / Cloud Shell / Visual Studio",
+			Description:       "Common default resource group",
+			Resources:         "test-storage (Microsoft.Storage/storageAccounts) - Created: 2023-01-01T12:00:00Z",
+		},
+	}
+
+	// Write CSV file
+	err = client.writeCSVFile(csvData)
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Read and verify CSV file
+	csvContent, err := os.ReadFile(tempFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to read CSV file: %v", err)
+	}
+
+	csvStr := string(csvContent)
+	lines := strings.Split(csvStr, "\n")
+
+	// Check header
+	expectedHeader := "ResourceGroupName,Location,ProvisioningState,CreatedTime,IsDefault,CreatedBy,Description,Resources"
+	if lines[0] != expectedHeader {
+		t.Errorf("Expected header '%s', got '%s'", expectedHeader, lines[0])
+	}
+
+	// Check first data row
+	if !strings.Contains(lines[1], "test-rg-1,eastus,Succeeded") {
+		t.Error("Expected first data row not found")
+	}
+
+	// Check second data row
+	if !strings.Contains(lines[2], "DefaultResourceGroup-EUS,eastus,Succeeded") {
+		t.Error("Expected second data row not found")
+	}
+
+	// Check that resources are properly escaped/quoted in CSV
+	if !strings.Contains(csvStr, "test-storage (Microsoft.Storage/storageAccounts)") {
+		t.Error("Expected resource information not found in CSV")
+	}
+}
+
+func TestCSVConfigValidation(t *testing.T) {
+	// Test that OutputCSV is properly configured using viper directly
+	// to avoid calling initConfig() which has validation requirements
+	
+	// Test with CSV output flag
+	viper.Set("output-csv", "test.csv")
+	outputCSV := viper.GetString("output-csv")
+	if outputCSV != "test.csv" {
+		t.Errorf("Expected OutputCSV 'test.csv', got '%s'", outputCSV)
+	}
+
+	// Test without CSV output flag
+	viper.Set("output-csv", "")
+	outputCSV = viper.GetString("output-csv")
+	if outputCSV != "" {
+		t.Errorf("Expected empty OutputCSV, got '%s'", outputCSV)
+	}
+}
+
+func TestFetchResourcesInGroup(t *testing.T) {
+	// Test the fetchResourcesInGroup function
+	mockClient := &MockHTTPClient{
+		DoFunc: func(req *http.Request) (*http.Response, error) {
+			// Return mock resources
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Body: io.NopCloser(strings.NewReader(`{
+					"value": [
+						{
+							"id": "/subscriptions/test/resourceGroups/test-rg/providers/Microsoft.Storage/storageAccounts/test-storage",
+							"name": "test-storage",
+							"type": "Microsoft.Storage/storageAccounts",
+							"createdTime": "2023-01-01T12:00:00Z"
+						},
+						{
+							"id": "/subscriptions/test/resourceGroups/test-rg/providers/Microsoft.Web/sites/test-app",
+							"name": "test-app",
+							"type": "Microsoft.Web/sites"
+						}
+					]
+				}`)),
+			}
+			return resp, nil
+		},
+	}
+
+	client := &AzureClient{
+		Config: Config{
+			SubscriptionID: "test-subscription",
+			AccessToken:    "test-token",
+		},
+		HTTPClient: mockClient,
+	}
+
+	resources, err := client.fetchResourcesInGroup("test-rg")
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	if len(resources) != 2 {
+		t.Fatalf("Expected 2 resources, got %d", len(resources))
+	}
+
+	// Check first resource
+	if resources[0].Name != "test-storage" {
+		t.Errorf("Expected first resource name 'test-storage', got '%s'", resources[0].Name)
+	}
+	if resources[0].Type != "Microsoft.Storage/storageAccounts" {
+		t.Errorf("Expected first resource type 'Microsoft.Storage/storageAccounts', got '%s'", resources[0].Type)
+	}
+	if resources[0].CreatedTime == nil {
+		t.Error("Expected first resource to have created time")
+	}
+
+	// Check second resource
+	if resources[1].Name != "test-app" {
+		t.Errorf("Expected second resource name 'test-app', got '%s'", resources[1].Name)
+	}
+	if resources[1].Type != "Microsoft.Web/sites" {
+		t.Errorf("Expected second resource type 'Microsoft.Web/sites', got '%s'", resources[1].Type)
+	}
+	if resources[1].CreatedTime != nil {
+		t.Error("Expected second resource to have nil created time")
 	}
 }
