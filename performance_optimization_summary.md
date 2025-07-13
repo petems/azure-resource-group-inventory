@@ -132,7 +132,7 @@ defer func() {
 ### 5. **Configurable Concurrency** ✅
 Added `--max-concurrency` flag to control concurrent API calls:
 ```bash
-./azure-rg-cli --max-concurrency 20 --subscription-id "..." --access-token "..."
+./azrginventory --max-concurrency 20 --subscription-id "..." --access-token "..."
 ```
 
 ## 📈 Expected Performance Gains
@@ -210,17 +210,17 @@ Operation completed in 1.234s, Memory usage: 1024 KB
 
 ### Basic Usage
 ```bash
-./azure-rg-cli --subscription-id "your-sub-id" --access-token "your-token"
+./azrginventory --subscription-id "your-sub-id" --access-token "your-token"
 ```
 
 ### High Performance Mode
 ```bash
-./azure-rg-cli --subscription-id "your-sub-id" --access-token "your-token" --max-concurrency 20
+./azrginventory --subscription-id "your-sub-id" --access-token "your-token" --max-concurrency 20
 ```
 
 ### Resource Listing
 ```bash
-./azure-rg-cli --subscription-id "your-sub-id" --access-token "your-token" --list-resources
+./azrginventory --subscription-id "your-sub-id" --access-token "your-token" --list-resources
 ```
 
 ## 📋 Next Steps

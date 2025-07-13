@@ -133,10 +133,10 @@ var azureClient *AzureClient
 
 // Root command
 var rootCmd = &cobra.Command{
-	Use:   "azure-rg-cli",
-	Short: "A CLI tool to fetch Azure resource groups and their creation times",
+	Use:   "azrginventory",
+	Short: "A CLI tool to get a full inventory of Azure resource groups and their creation times",
 	Long: `A command-line tool that fetches all Azure resource groups from a subscription
-and retrieves their creation times using the Azure Management API.`,
+and retrieves their creation times (based on the earliest resource in the group) using the Azure Management API.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := azureClient.FetchResourceGroups(); err != nil {
 			log.Fatalf("Error fetching resource groups: %v", err)

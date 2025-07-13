@@ -1,18 +1,21 @@
-# Azure Resource Group CLI
 
-A command-line tool to fetch Azure resource groups and their creation times using the Azure Management API.
+# azure-resource-group-inventory
+
+`azrginventory` is a command-line tool to get a full inventory of all your Azure resource groups within a subscription, including when each group was created (based on the earliest resource in the group).
+
 
 ## Features
 
 - Fetches all resource groups from a specified Azure subscription
-- Retrieves creation times for each resource group
+- Determines the creation time for each resource group, based on the earliest resource in the group
 - **🆕 Detects default Azure resource groups** and shows context about what created them
 - Supports both command-line flags and environment variables for configuration
 - Clean, formatted output with resource group details
 
+
 ## Default Resource Group Detection
 
-This tool automatically identifies default resource groups created by Azure services and provides context about what created them:
+`azrginventory` automatically identifies default resource groups created by Azure services and provides context about what created them:
 
 | Pattern | Created By | Description |
 |---------|------------|-------------|
@@ -25,11 +28,13 @@ This tool automatically identifies default resource groups created by Azure serv
 | `microsoft-network` | Microsoft Networking Services | Used by Microsoft's networking services |
 | `LogAnalyticsDefaultResources` | Azure Log Analytics | Created for default workspace resources |
 
+
 ## Prerequisites
 
 - Go 1.21 or higher
 - Azure subscription
 - Azure access token for authentication
+
 
 ## Installation
 
@@ -40,8 +45,14 @@ This tool automatically identifies default resource groups created by Azure serv
    ```
 3. Build the application:
    ```bash
-   go build -o azure-rg-cli
+   go build -o azrginventory
    ```
+
+## Context: Why was this tool created?
+
+This tool was created to address a real-world problem: managing a large Azure sandbox subscription with 900+ resource groups, unclear ownership, and uncertainty about what is still in use. Azure imposes a hard cap of `980` [on the number of resource groups per subscription](https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/azure-subscription-service-limits#azure-subscription-limits), making it critical to inventory, audit, and clean up unused or unknown groups. 
+
+`azrginventory` helps you quickly understand what exists, when it was created, and which groups may be default or system-generated, and can output to csv format for planning and assesment within teams.
 
 ## Getting Azure Access Token
 
@@ -82,14 +93,14 @@ curl -X POST https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/token \
 
 ### Using Command Line Flags
 ```bash
-./azure-rg-cli --subscription-id "your-subscription-id" --access-token "your-access-token"
+./azrginventory --subscription-id "your-subscription-id" --access-token "your-access-token"
 ```
 
 ### Using Environment Variables
 ```bash
 export AZURE_SUBSCRIPTION_ID="your-subscription-id"
 export AZURE_ACCESS_TOKEN="your-access-token"
-./azure-rg-cli
+./azrginventory
 ```
 
 ### Example Output

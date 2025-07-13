@@ -30,12 +30,12 @@ resource-name (resource-type) - Created: timestamp; resource-name2 (resource-typ
 
 ### Basic CSV Output
 ```bash
-./azure-rg-cli --subscription-id "your-sub-id" --access-token "your-token" --output-csv "output.csv"
+./azrginventory --subscription-id "your-sub-id" --access-token "your-token" --output-csv "output.csv"
 ```
 
 ### CSV Output with Resource Listing
 ```bash
-./azure-rg-cli --subscription-id "your-sub-id" --access-token "your-token" --list-resources --output-csv "output_with_resources.csv"
+./azrginventory --subscription-id "your-sub-id" --access-token "your-token" --list-resources --output-csv "output_with_resources.csv"
 ```
 
 ## Sample CSV Output

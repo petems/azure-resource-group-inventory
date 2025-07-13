@@ -1,7 +1,8 @@
-# Azure Resource Group CLI Makefile
+
+# azure-resource-group-inventory Makefile
 
 # Binary name
-BINARY_NAME=azure-rg-cli
+BINARY_NAME=azrginventory
 
 # Build the application
 build:

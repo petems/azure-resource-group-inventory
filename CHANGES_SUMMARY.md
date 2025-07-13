@@ -81,12 +81,12 @@
 
 #### Basic CSV Output
 ```bash
-./azure-rg-cli --subscription-id "sub-id" --access-token "token" --output-csv "output.csv"
+./azrginventory --subscription-id "sub-id" --access-token "token" --output-csv "output.csv"
 ```
 
 #### CSV with Resources
 ```bash
-./azure-rg-cli --subscription-id "sub-id" --access-token "token" --list-resources --output-csv "output.csv"
+./azrginventory --subscription-id "sub-id" --access-token "token" --list-resources --output-csv "output.csv"
 ```
 
 ### 6. Quality Assurance
