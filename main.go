@@ -21,6 +21,8 @@ import (
 // Pre-compiled regex patterns for better performance
 var (
 	defaultResourceGroupPattern = regexp.MustCompile(`^defaultresourcegroup-`)
+	defaultServicePattern       = regexp.MustCompile(`^default-[a-z0-9]+(-[a-z0-9]+)*$`)
+	cloudShellStoragePattern    = regexp.MustCompile(`^cloud-shell-storage-[a-z0-9]+$`)
 	dynamicsPattern             = regexp.MustCompile(`^dynamicsdeployments$`)
 	aksPattern                  = regexp.MustCompile(`^mc_.*_.*_.*$`)
 	azureBackupPattern          = regexp.MustCompile(`^azurebackuprg`)
@@ -225,6 +227,24 @@ func checkIfDefaultResourceGroup(name string) DefaultResourceGroupInfo {
 			IsDefault:   true,
 			CreatedBy:   "Azure CLI / Cloud Shell / Visual Studio",
 			Description: "Common default resource group created for the region, used by Azure CLI, Cloud Shell, and Visual Studio for resource deployment",
+		}
+	}
+
+	// Default-ServiceName-Region pattern (e.g., Default-Storage-EastUS, Default-EventHub-EastUS)
+	if defaultServicePattern.MatchString(nameLower) {
+		return DefaultResourceGroupInfo{
+			IsDefault:   true,
+			CreatedBy:   "Azure Services",
+			Description: "Default resource group created by Azure services for regional deployments",
+		}
+	}
+
+	// cloud-shell-storage-region pattern (e.g., cloud-shell-storage-eastus)
+	if cloudShellStoragePattern.MatchString(nameLower) {
+		return DefaultResourceGroupInfo{
+			IsDefault:   true,
+			CreatedBy:   "Azure Cloud Shell",
+			Description: "Default storage resource group created by Azure Cloud Shell for persistent storage",
 		}
 	}
 
