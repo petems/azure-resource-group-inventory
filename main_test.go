@@ -49,6 +49,7 @@ func TestMakeAzureRequest(t *testing.T) {
 		Config: Config{
 			SubscriptionID: "test-sub",
 			AccessToken:    "test-token",
+			Porcelain:      true, // Disable spinner in tests
 		},
 		HTTPClient: &http.Client{},
 	}
@@ -84,6 +85,7 @@ func TestMakeAzureRequestWithError(t *testing.T) {
 		Config: Config{
 			SubscriptionID: "test-sub",
 			AccessToken:    "invalid-token",
+			Porcelain:      true, // Disable spinner in tests
 		},
 		HTTPClient: &http.Client{},
 	}
@@ -133,6 +135,7 @@ func TestFetchResourceGroupCreatedTime(t *testing.T) {
 		Config: Config{
 			SubscriptionID: "test-subscription",
 			AccessToken:    "test-token",
+			Porcelain:      true, // Disable spinner in tests
 		},
 		HTTPClient: mockClient,
 	}
@@ -171,6 +174,7 @@ func TestFetchResourceGroupCreatedTimeWithNoResources(t *testing.T) {
 		Config: Config{
 			SubscriptionID: "test-subscription",
 			AccessToken:    "test-token",
+			Porcelain:      true, // Disable spinner in tests
 		},
 		HTTPClient: mockClient,
 	}
@@ -241,7 +245,8 @@ func TestFetchResourceGroups(t *testing.T) {
 		Config: Config{
 			SubscriptionID: "test-subscription",
 			AccessToken:    "test-token",
-			MaxConcurrency: 10, // Set MaxConcurrency to prevent hanging
+			MaxConcurrency: 10,   // Set MaxConcurrency to prevent hanging
+			Porcelain:      true, // Disable spinner in tests
 		},
 		HTTPClient: mockClient,
 	}
@@ -384,7 +389,8 @@ func TestInvalidJSON(t *testing.T) {
 		Config: Config{
 			SubscriptionID: "test-subscription",
 			AccessToken:    "test-token",
-			MaxConcurrency: 10, // Set MaxConcurrency to prevent hanging
+			MaxConcurrency: 10,   // Set MaxConcurrency to prevent hanging
+			Porcelain:      true, // Disable spinner in tests
 		},
 		HTTPClient: mockClient,
 	}
@@ -404,28 +410,28 @@ func TestInvalidJSON(t *testing.T) {
 
 func TestMaxConcurrencyValidation(t *testing.T) {
 	testCases := []struct {
-		name                  string
-		inputMaxConcurrency   int
+		name                   string
+		inputMaxConcurrency    int
 		expectedMaxConcurrency int
 	}{
 		{
-			name:                  "Valid concurrency",
-			inputMaxConcurrency:   5,
+			name:                   "Valid concurrency",
+			inputMaxConcurrency:    5,
 			expectedMaxConcurrency: 5,
 		},
 		{
-			name:                  "Zero concurrency should be set to 1",
-			inputMaxConcurrency:   0,
+			name:                   "Zero concurrency should be set to 1",
+			inputMaxConcurrency:    0,
 			expectedMaxConcurrency: 1,
 		},
 		{
-			name:                  "Negative concurrency should be set to 1",
-			inputMaxConcurrency:   -5,
+			name:                   "Negative concurrency should be set to 1",
+			inputMaxConcurrency:    -5,
 			expectedMaxConcurrency: 1,
 		},
 		{
-			name:                  "Minimum valid concurrency",
-			inputMaxConcurrency:   1,
+			name:                   "Minimum valid concurrency",
+			inputMaxConcurrency:    1,
 			expectedMaxConcurrency: 1,
 		},
 	}
@@ -434,9 +440,9 @@ func TestMaxConcurrencyValidation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Test the validation function directly
 			result := validateConcurrency(tc.inputMaxConcurrency)
-			
+
 			if result != tc.expectedMaxConcurrency {
-				t.Errorf("Expected validateConcurrency(%d) to return %d, but got %d", 
+				t.Errorf("Expected validateConcurrency(%d) to return %d, but got %d",
 					tc.inputMaxConcurrency, tc.expectedMaxConcurrency, result)
 			}
 
@@ -446,6 +452,7 @@ func TestMaxConcurrencyValidation(t *testing.T) {
 					SubscriptionID: "test-subscription",
 					AccessToken:    "test-token",
 					MaxConcurrency: tc.inputMaxConcurrency,
+					Porcelain:      true, // Disable spinner in tests
 				},
 			}
 
@@ -757,7 +764,8 @@ func TestFetchResourceGroupsWithDefaultDetection(t *testing.T) {
 		Config: Config{
 			SubscriptionID: "test-subscription",
 			AccessToken:    "test-token",
-			MaxConcurrency: 10, // Set MaxConcurrency to prevent hanging
+			MaxConcurrency: 10,    // Set MaxConcurrency to prevent hanging
+			Porcelain:      false, // Need human-readable output for this test
 		},
 		HTTPClient: mockClient,
 	}
@@ -887,6 +895,7 @@ func TestCSVOutputWithoutResources(t *testing.T) {
 			AccessToken:    "test-token",
 			MaxConcurrency: 10,
 			OutputCSV:      tempFile.Name(),
+			Porcelain:      true, // Disable spinner in tests
 		},
 		HTTPClient: mockClient,
 	}
@@ -990,6 +999,7 @@ func TestCSVOutputWithResources(t *testing.T) {
 			AccessToken:    "test-token",
 			MaxConcurrency: 10,
 			OutputCSV:      tempFile.Name(),
+			Porcelain:      true, // Disable spinner in tests
 		},
 		HTTPClient: mockClient,
 	}
@@ -997,7 +1007,7 @@ func TestCSVOutputWithResources(t *testing.T) {
 	// Set list-resources flag using viper
 	viper.Set("list-resources", true)
 	defer viper.Set("list-resources", false) // Reset after test
-	
+
 	// Test the function with list-resources enabled
 	err = client.FetchResourceGroups()
 	if err != nil {
@@ -1084,6 +1094,7 @@ func TestCSVOutputWithEmptyResourceGroup(t *testing.T) {
 			AccessToken:    "test-token",
 			MaxConcurrency: 10,
 			OutputCSV:      tempFile.Name(),
+			Porcelain:      true, // Disable spinner in tests
 		},
 		HTTPClient: mockClient,
 	}
@@ -1117,6 +1128,7 @@ func TestConvertToCSVRow(t *testing.T) {
 			SubscriptionID: "test-subscription",
 			AccessToken:    "test-token",
 			MaxConcurrency: 10,
+			Porcelain:      true, // Disable spinner in tests
 		},
 	}
 
@@ -1241,6 +1253,7 @@ func TestWriteCSVFile(t *testing.T) {
 			AccessToken:    "test-token",
 			MaxConcurrency: 10,
 			OutputCSV:      tempFile.Name(),
+			Porcelain:      true, // Disable spinner in tests
 		},
 	}
 
@@ -1308,7 +1321,7 @@ func TestWriteCSVFile(t *testing.T) {
 func TestCSVConfigValidation(t *testing.T) {
 	// Test that OutputCSV is properly configured using viper directly
 	// to avoid calling initConfig() which has validation requirements
-	
+
 	// Test with CSV output flag
 	viper.Set("output-csv", "test.csv")
 	outputCSV := viper.GetString("output-csv")
@@ -1355,6 +1368,7 @@ func TestFetchResourcesInGroup(t *testing.T) {
 		Config: Config{
 			SubscriptionID: "test-subscription",
 			AccessToken:    "test-token",
+			Porcelain:      true, // Disable spinner in tests
 		},
 		HTTPClient: mockClient,
 	}

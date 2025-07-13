@@ -85,6 +85,7 @@ func BenchmarkSequentialProcessing(b *testing.B) {
 			SubscriptionID: "test-subscription",
 			AccessToken:    "test-token",
 			MaxConcurrency: 1,
+			Porcelain:      true, // Disable spinner in tests
 		},
 		HTTPClient: mockClient,
 	}
@@ -127,6 +128,7 @@ func BenchmarkConcurrentProcessing(b *testing.B) {
 			SubscriptionID: "test-subscription",
 			AccessToken:    "test-token",
 			MaxConcurrency: 10,
+			Porcelain:      true, // Disable spinner in tests
 		},
 		HTTPClient: mockClient,
 	}
@@ -185,6 +187,7 @@ func BenchmarkMemoryUsage(b *testing.B) {
 			SubscriptionID: "test-subscription",
 			AccessToken:    "test-token",
 			MaxConcurrency: 10,
+			Porcelain:      true, // Disable spinner in tests
 		},
 		HTTPClient: mockClient,
 	}
@@ -254,6 +257,7 @@ func BenchmarkConcurrentVsSequential(b *testing.B) {
 				SubscriptionID: "test-subscription",
 				AccessToken:    "test-token",
 				MaxConcurrency: 1,
+				Porcelain:      true, // Disable spinner in tests
 			},
 			HTTPClient: mockClient,
 		}
@@ -272,6 +276,7 @@ func BenchmarkConcurrentVsSequential(b *testing.B) {
 				SubscriptionID: "test-subscription",
 				AccessToken:    "test-token",
 				MaxConcurrency: 10,
+				Porcelain:      true, // Disable spinner in tests
 			},
 			HTTPClient: mockClient,
 		}
@@ -324,6 +329,7 @@ func BenchmarkHTTPClientOptimizations(b *testing.B) {
 				SubscriptionID: "test-subscription",
 				AccessToken:    "test-token",
 				MaxConcurrency: 5,
+				Porcelain:      true, // Disable spinner in tests
 			},
 			HTTPClient: mockClient,
 		}
@@ -342,6 +348,7 @@ func BenchmarkHTTPClientOptimizations(b *testing.B) {
 				SubscriptionID: "test-subscription",
 				AccessToken:    "test-token",
 				MaxConcurrency: 5,
+				Porcelain:      true, // Disable spinner in tests
 			},
 			HTTPClient: mockClient,
 		}
@@ -406,6 +413,7 @@ func BenchmarkScalability(b *testing.B) {
 					SubscriptionID: "test-subscription",
 					AccessToken:    "test-token",
 					MaxConcurrency: 10,
+					Porcelain:      true, // Disable spinner in tests
 				},
 				HTTPClient: mockClient,
 			}
