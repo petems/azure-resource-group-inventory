@@ -76,6 +76,7 @@ func TestIntegrationOptimizedFetchResourceGroups(t *testing.T) {
 			SubscriptionID: "test-subscription",
 			AccessToken:    "test-token",
 			MaxConcurrency: 5,
+			Porcelain:      false, // Need human-readable output for this test
 		},
 		HTTPClient: mockClient,
 	}
@@ -195,6 +196,7 @@ func TestRaceConditionDetection(t *testing.T) {
 			SubscriptionID: "test-subscription",
 			AccessToken:    "test-token",
 			MaxConcurrency: 10,
+			Porcelain:      true, // Disable spinner in tests
 		},
 		HTTPClient: mockClient,
 	}
@@ -267,6 +269,7 @@ func TestPerformanceMonitoringIntegration(t *testing.T) {
 			SubscriptionID: "test-subscription",
 			AccessToken:    "test-token",
 			MaxConcurrency: 5,
+			Porcelain:      true, // Disable spinner in tests
 		},
 		HTTPClient: mockClient,
 	}
@@ -395,6 +398,7 @@ func TestConcurrentProcessingScalability(t *testing.T) {
 					SubscriptionID: "test-subscription",
 					AccessToken:    "test-token",
 					MaxConcurrency: 10,
+					Porcelain:      true, // Disable spinner in tests
 				},
 				HTTPClient: mockClient,
 			}
@@ -478,6 +482,7 @@ func TestErrorHandlingInOptimizedFlow(t *testing.T) {
 			SubscriptionID: "test-subscription",
 			AccessToken:    "test-token",
 			MaxConcurrency: 5,
+			Porcelain:      false, // Need human-readable output for this test
 		},
 		HTTPClient: mockClient,
 	}
@@ -559,6 +564,7 @@ func TestConfigurationIntegration(t *testing.T) {
 					SubscriptionID: "test-subscription",
 					AccessToken:    "test-token",
 					MaxConcurrency: tc.maxConcurrency,
+					Porcelain:      true, // Disable spinner in tests
 				},
 				HTTPClient: mockClient,
 			}

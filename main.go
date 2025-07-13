@@ -66,6 +66,51 @@ type Config struct {
 	AccessToken    string
 	MaxConcurrency int
 	OutputCSV      string
+	Porcelain      bool
+}
+
+// Spinner represents a simple text spinner for CLI feedback
+type Spinner struct {
+	message string
+	active  bool
+	done    chan bool
+}
+
+// NewSpinner creates a new spinner with the given message
+func NewSpinner(message string) *Spinner {
+	return &Spinner{
+		message: message,
+		done:    make(chan bool),
+	}
+}
+
+// Start begins the spinner animation
+func (s *Spinner) Start() {
+	s.active = true
+	go func() {
+		frames := []string{"|", "/", "-", "\\"}
+		i := 0
+		for {
+			select {
+			case <-s.done:
+				return
+			default:
+				if s.active {
+					fmt.Printf("\r%s %s", frames[i], s.message)
+					i = (i + 1) % len(frames)
+					time.Sleep(100 * time.Millisecond)
+				}
+			}
+		}
+	}()
+}
+
+// Stop terminates the spinner and clears the line
+func (s *Spinner) Stop() {
+	s.active = false
+	s.done <- true
+	close(s.done)
+	fmt.Print("\r\033[K") // Clear the line
 }
 
 // Azure client struct
@@ -106,6 +151,7 @@ func init() {
 	rootCmd.PersistentFlags().Bool("list-resources", false, "List all resources in each resource group with their creation times")
 	rootCmd.PersistentFlags().Int("max-concurrency", 10, "Maximum number of concurrent API calls (minimum: 1)")
 	rootCmd.PersistentFlags().String("output-csv", "", "Output results to CSV file (specify file path)")
+	rootCmd.PersistentFlags().Bool("porcelain", false, "Output results in a machine-readable format optimized for scripts (tab-separated values, no spinner)")
 
 	// Bind flags to viper
 	if err := viper.BindPFlag("subscription-id", rootCmd.PersistentFlags().Lookup("subscription-id")); err != nil {
@@ -123,6 +169,9 @@ func init() {
 	if err := viper.BindPFlag("output-csv", rootCmd.PersistentFlags().Lookup("output-csv")); err != nil {
 		log.Fatalf("Failed to bind output-csv flag: %v", err)
 	}
+	if err := viper.BindPFlag("porcelain", rootCmd.PersistentFlags().Lookup("porcelain")); err != nil {
+		log.Fatalf("Failed to bind porcelain flag: %v", err)
+	}
 }
 
 func initConfig() {
@@ -135,6 +184,7 @@ func initConfig() {
 	config.AccessToken = viper.GetString("access-token")
 	config.MaxConcurrency = viper.GetInt("max-concurrency")
 	config.OutputCSV = viper.GetString("output-csv")
+	config.Porcelain = viper.GetBool("porcelain")
 
 	// If not provided via flags, try environment variables
 	if config.SubscriptionID == "" {
@@ -307,7 +357,9 @@ func (ac *AzureClient) FetchResourceGroups() error {
 		log.Printf("Operation completed in %v, Memory usage: %d KB", time.Since(start), m.Alloc/1024)
 	}()
 
-	fmt.Println("Fetching resource groups...")
+	if !ac.Config.Porcelain {
+		fmt.Println("Fetching resource groups...")
+	}
 
 	// Fetch all resource groups
 	url := fmt.Sprintf("https://management.azure.com/subscriptions/%s/resourcegroups?api-version=2021-04-01", ac.Config.SubscriptionID)
@@ -332,7 +384,12 @@ func (ac *AzureClient) FetchResourceGroups() error {
 		return fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	fmt.Printf("Found %d resource groups:\n\n", len(rgResponse.Value))
+	if ac.Config.Porcelain {
+		// Print header for porcelain mode
+		fmt.Printf("NAME\tLOCATION\tPROVISIONING_STATE\tCREATED_TIME\tIS_DEFAULT\n")
+	} else {
+		fmt.Printf("Found %d resource groups:\n\n", len(rgResponse.Value))
+	}
 
 	// Check if we should list resources
 	listResources := viper.GetBool("list-resources")
@@ -365,7 +422,9 @@ func (ac *AzureClient) FetchResourceGroups() error {
 		if err := ac.writeCSVFile(csvData); err != nil {
 			return fmt.Errorf("failed to write CSV file: %w", err)
 		}
-		fmt.Printf("CSV output written to: %s\n", ac.Config.OutputCSV)
+		if !ac.Config.Porcelain {
+			fmt.Printf("CSV output written to: %s\n", ac.Config.OutputCSV)
+		}
 	}
 
 	return nil
@@ -381,6 +440,13 @@ func (ac *AzureClient) processResourceGroupsConcurrently(resourceGroups []Resour
 
 	// Use a semaphore to limit concurrent goroutines
 	semaphore := make(chan struct{}, maxConcurrency)
+
+	// Start spinner if not in porcelain mode
+	var spinner *Spinner
+	if !ac.Config.Porcelain {
+		spinner = NewSpinner("Processing resource groups...")
+		spinner.Start()
+	}
 
 	// Start workers
 	for i, rg := range resourceGroups {
@@ -404,6 +470,11 @@ func (ac *AzureClient) processResourceGroupsConcurrently(resourceGroups []Resour
 	// Wait for all workers to complete
 	wg.Wait()
 
+	// Stop spinner if it was started
+	if spinner != nil {
+		spinner.Stop()
+	}
+
 	// Print all results
 	for _, result := range results {
 		ac.printResourceGroupResult(result, false)
@@ -412,6 +483,13 @@ func (ac *AzureClient) processResourceGroupsConcurrently(resourceGroups []Resour
 
 // processResourceGroupsConcurrentlyWithResources processes resource groups with detailed resource listing
 func (ac *AzureClient) processResourceGroupsConcurrentlyWithResources(resourceGroups []ResourceGroup) {
+	// Start spinner if not in porcelain mode
+	var spinner *Spinner
+	if !ac.Config.Porcelain {
+		spinner = NewSpinner("Processing resource groups with resources...")
+		spinner.Start()
+	}
+
 	// For resource listing, we don't need concurrency for the initial setup
 	// The concurrency will be handled by the resource listing itself
 	for _, rg := range resourceGroups {
@@ -422,40 +500,72 @@ func (ac *AzureClient) processResourceGroupsConcurrentlyWithResources(resourceGr
 		}
 		ac.printResourceGroupResult(result, true)
 	}
+
+	// Stop spinner if it was started
+	if spinner != nil {
+		spinner.Stop()
+	}
 }
 
 // printResourceGroupResult prints the result of processing a resource group
 func (ac *AzureClient) printResourceGroupResult(result ResourceGroupResult, listResources bool) {
 	rg := result.ResourceGroup
-	fmt.Printf("Resource Group: %s\n", rg.Name)
-	fmt.Printf("  Location: %s\n", rg.Location)
-	fmt.Printf("  Provisioning State: %s\n", rg.Properties.ProvisioningState)
-
+	
 	// Check if this is a default resource group
 	defaultInfo := checkIfDefaultResourceGroup(rg.Name)
-	if defaultInfo.IsDefault {
-		fmt.Printf("  🔍 DEFAULT RESOURCE GROUP DETECTED\n")
-		fmt.Printf("  📋 Created By: %s\n", defaultInfo.CreatedBy)
-		fmt.Printf("  📝 Description: %s\n", defaultInfo.Description)
-	}
-
-	if listResources {
-		// List all resources in this resource group
-		if err := ac.listResourcesInGroup(rg.Name); err != nil {
-			fmt.Printf("  Error listing resources: %v\n", err)
-		}
-	} else {
-		// Just show the creation time
+	
+	if ac.Config.Porcelain {
+		// Porcelain mode: compact, single-line format for scripts
+		createdTime := ""
 		if result.Error != nil {
-			fmt.Printf("  Created Time: Error fetching (%v)\n", result.Error)
+			createdTime = "ERROR"
 		} else if result.CreatedTime != nil {
-			fmt.Printf("  Created Time: %s\n", result.CreatedTime.Format(time.RFC3339))
+			createdTime = result.CreatedTime.Format(time.RFC3339)
 		} else {
-			fmt.Printf("  Created Time: Not available\n")
+			createdTime = "N/A"
 		}
-	}
+		
+		isDefault := "false"
+		if defaultInfo.IsDefault {
+			isDefault = "true"
+		}
+		
+		fmt.Printf("%s\t%s\t%s\t%s\t%s\n", 
+			rg.Name, 
+			rg.Location, 
+			rg.Properties.ProvisioningState, 
+			createdTime, 
+			isDefault)
+	} else {
+		// Human-readable format
+		fmt.Printf("Resource Group: %s\n", rg.Name)
+		fmt.Printf("  Location: %s\n", rg.Location)
+		fmt.Printf("  Provisioning State: %s\n", rg.Properties.ProvisioningState)
 
-	fmt.Println()
+		if defaultInfo.IsDefault {
+			fmt.Printf("  🔍 DEFAULT RESOURCE GROUP DETECTED\n")
+			fmt.Printf("  📋 Created By: %s\n", defaultInfo.CreatedBy)
+			fmt.Printf("  📝 Description: %s\n", defaultInfo.Description)
+		}
+
+		if listResources {
+			// List all resources in this resource group
+			if err := ac.listResourcesInGroup(rg.Name); err != nil {
+				fmt.Printf("  Error listing resources: %v\n", err)
+			}
+		} else {
+			// Just show the creation time
+			if result.Error != nil {
+				fmt.Printf("  Created Time: Error fetching (%v)\n", result.Error)
+			} else if result.CreatedTime != nil {
+				fmt.Printf("  Created Time: %s\n", result.CreatedTime.Format(time.RFC3339))
+			} else {
+				fmt.Printf("  Created Time: Not available\n")
+			}
+		}
+
+		fmt.Println()
+	}
 }
 
 func (ac *AzureClient) fetchResourceGroupCreatedTime(resourceGroupName string) (*time.Time, error) {
@@ -560,6 +670,13 @@ func (ac *AzureClient) processResourceGroupsConcurrentlyCSV(resourceGroups []Res
 	// Use a semaphore to limit concurrent goroutines
 	semaphore := make(chan struct{}, maxConcurrency)
 
+	// Start spinner if not in porcelain mode
+	var spinner *Spinner
+	if !ac.Config.Porcelain {
+		spinner = NewSpinner("Processing resource groups for CSV...")
+		spinner.Start()
+	}
+
 	// Start workers
 	for i, rg := range resourceGroups {
 		wg.Add(1)
@@ -582,6 +699,11 @@ func (ac *AzureClient) processResourceGroupsConcurrentlyCSV(resourceGroups []Res
 	// Wait for all workers to complete
 	wg.Wait()
 
+	// Stop spinner if it was started
+	if spinner != nil {
+		spinner.Stop()
+	}
+
 	// Convert results to CSV format
 	csvData := make([]CSVRow, 0, len(results))
 	for _, result := range results {
@@ -597,6 +719,13 @@ func (ac *AzureClient) processResourceGroupsConcurrentlyCSV(resourceGroups []Res
 // processResourceGroupsConcurrentlyWithResourcesCSV processes resource groups with resources and returns CSV data
 func (ac *AzureClient) processResourceGroupsConcurrentlyWithResourcesCSV(resourceGroups []ResourceGroup) []CSVRow {
 	csvData := make([]CSVRow, 0, len(resourceGroups))
+
+	// Start spinner if not in porcelain mode
+	var spinner *Spinner
+	if !ac.Config.Porcelain {
+		spinner = NewSpinner("Processing resource groups with resources for CSV...")
+		spinner.Start()
+	}
 
 	for _, rg := range resourceGroups {
 		// Fetch resources for this resource group
@@ -623,6 +752,11 @@ func (ac *AzureClient) processResourceGroupsConcurrentlyWithResourcesCSV(resourc
 		csvRow := ac.convertToCSVRow(result, true, resources)
 		csvData = append(csvData, csvRow)
 		ac.printResourceGroupResultWithResources(result, resources)
+	}
+
+	// Stop spinner if it was started
+	if spinner != nil {
+		spinner.Stop()
 	}
 
 	return csvData
@@ -704,34 +838,72 @@ func (ac *AzureClient) convertToCSVRow(result ResourceGroupResult, listResources
 // printResourceGroupResultWithResources prints a resource group result with resources
 func (ac *AzureClient) printResourceGroupResultWithResources(result ResourceGroupResult, resources []Resource) {
 	rg := result.ResourceGroup
-	fmt.Printf("Resource Group: %s\n", rg.Name)
-	fmt.Printf("  Location: %s\n", rg.Location)
-	fmt.Printf("  Provisioning State: %s\n", rg.Properties.ProvisioningState)
-
+	
 	// Check if this is a default resource group
 	defaultInfo := checkIfDefaultResourceGroup(rg.Name)
-	if defaultInfo.IsDefault {
-		fmt.Printf("  🔍 DEFAULT RESOURCE GROUP DETECTED\n")
-		fmt.Printf("  📋 Created By: %s\n", defaultInfo.CreatedBy)
-		fmt.Printf("  📝 Description: %s\n", defaultInfo.Description)
-	}
-
-	// Print resources
-	if len(resources) == 0 {
-		fmt.Printf("  No resources found in this resource group\n")
-	} else {
-		fmt.Printf("  Resources (%d):\n", len(resources))
-		for _, resource := range resources {
-			fmt.Printf("    - %s (%s)\n", resource.Name, resource.Type)
-			if resource.CreatedTime != nil {
-				fmt.Printf("      Created: %s\n", resource.CreatedTime.Format(time.RFC3339))
+	
+	if ac.Config.Porcelain {
+		// For porcelain mode, we need to get creation time from resources
+		createdTime := ""
+		if len(resources) > 0 {
+			// Find the earliest created time among all resources
+			var earliestTime *time.Time
+			for _, resource := range resources {
+				if resource.CreatedTime != nil {
+					if earliestTime == nil || resource.CreatedTime.Before(*earliestTime) {
+						earliestTime = resource.CreatedTime
+					}
+				}
+			}
+			if earliestTime != nil {
+				createdTime = earliestTime.Format(time.RFC3339)
 			} else {
-				fmt.Printf("      Created: Not available\n")
+				createdTime = "N/A"
+			}
+		} else {
+			createdTime = "N/A"
+		}
+		
+		isDefault := "false"
+		if defaultInfo.IsDefault {
+			isDefault = "true"
+		}
+		
+		fmt.Printf("%s\t%s\t%s\t%s\t%s\n", 
+			rg.Name, 
+			rg.Location, 
+			rg.Properties.ProvisioningState, 
+			createdTime, 
+			isDefault)
+	} else {
+		// Human-readable format
+		fmt.Printf("Resource Group: %s\n", rg.Name)
+		fmt.Printf("  Location: %s\n", rg.Location)
+		fmt.Printf("  Provisioning State: %s\n", rg.Properties.ProvisioningState)
+
+		if defaultInfo.IsDefault {
+			fmt.Printf("  🔍 DEFAULT RESOURCE GROUP DETECTED\n")
+			fmt.Printf("  📋 Created By: %s\n", defaultInfo.CreatedBy)
+			fmt.Printf("  📝 Description: %s\n", defaultInfo.Description)
+		}
+
+		// Print resources
+		if len(resources) == 0 {
+			fmt.Printf("  No resources found in this resource group\n")
+		} else {
+			fmt.Printf("  Resources (%d):\n", len(resources))
+			for _, resource := range resources {
+				fmt.Printf("    - %s (%s)\n", resource.Name, resource.Type)
+				if resource.CreatedTime != nil {
+					fmt.Printf("      Created: %s\n", resource.CreatedTime.Format(time.RFC3339))
+				} else {
+					fmt.Printf("      Created: Not available\n")
+				}
 			}
 		}
-	}
 
-	fmt.Println()
+		fmt.Println()
+	}
 }
 
 // writeCSVFile writes CSV data to the specified file

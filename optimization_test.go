@@ -156,6 +156,7 @@ func TestConcurrentProcessing(t *testing.T) {
 			SubscriptionID: "test-subscription",
 			AccessToken:    "test-token",
 			MaxConcurrency: 2,
+			Porcelain:      true, // Disable spinner in tests
 		},
 		HTTPClient: mockClient,
 	}
@@ -258,6 +259,7 @@ func TestConcurrentProcessingErrorHandling(t *testing.T) {
 			SubscriptionID: "test-subscription",
 			AccessToken:    "test-token",
 			MaxConcurrency: 2,
+			Porcelain:      false, // Need human-readable output for this test
 		},
 		HTTPClient: mockClient,
 	}
@@ -352,7 +354,8 @@ func TestSemaphoreRateLimiting(t *testing.T) {
 		Config: Config{
 			SubscriptionID: "test-subscription",
 			AccessToken:    "test-token",
-			MaxConcurrency: 3, // Limit to 3 concurrent requests
+			MaxConcurrency: 3,    // Limit to 3 concurrent requests
+			Porcelain:      true, // Disable spinner in tests
 		},
 		HTTPClient: mockClient,
 	}
@@ -402,6 +405,7 @@ func TestHTTPClientOptimization(t *testing.T) {
 		SubscriptionID: "test-sub",
 		AccessToken:    "test-token",
 		MaxConcurrency: 10,
+		Porcelain:      true, // Disable spinner in tests
 	}
 
 	client := &AzureClient{
@@ -497,6 +501,7 @@ func TestConfigurableConcurrency(t *testing.T) {
 				SubscriptionID: "test-sub",
 				AccessToken:    "test-token",
 				MaxConcurrency: tc.maxConcurrency,
+				Porcelain:      true, // Disable spinner in tests
 			}
 
 			if tc.maxConcurrency == 0 {
@@ -549,6 +554,7 @@ func TestMemorySafetyInConcurrentProcessing(t *testing.T) {
 			SubscriptionID: "test-subscription",
 			AccessToken:    "test-token",
 			MaxConcurrency: 10,
+			Porcelain:      true, // Disable spinner in tests
 		},
 		HTTPClient: mockClient,
 	}
@@ -608,6 +614,7 @@ func TestPrintResourceGroupResult(t *testing.T) {
 			SubscriptionID: "test-subscription",
 			AccessToken:    "test-token",
 			MaxConcurrency: 10,
+			Porcelain:      false, // Need human-readable output for this test
 		},
 		HTTPClient: &MockHTTPClient{
 			DoFunc: func(req *http.Request) (*http.Response, error) {
@@ -698,6 +705,7 @@ func TestConcurrentProcessingWithResourceListing(t *testing.T) {
 			SubscriptionID: "test-subscription",
 			AccessToken:    "test-token",
 			MaxConcurrency: 10,
+			Porcelain:      true, // Disable spinner in tests
 		},
 		HTTPClient: mockClient,
 	}
