@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"regexp"
@@ -62,6 +63,37 @@ type ResourcesResponse struct {
 	Value []Resource `json:"value"`
 }
 
+// Storage Account structures
+type StorageAccount struct {
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	Location    string     `json:"location"`
+	Type        string     `json:"type"`
+	CreatedTime *time.Time `json:"createdTime,omitempty"`
+	Properties  struct {
+		ProvisioningState string     `json:"provisioningState"`
+		CreationTime      *time.Time `json:"creationTime,omitempty"`
+		PrimaryEndpoints  struct {
+			Blob  string `json:"blob"`
+			Queue string `json:"queue"`
+			Table string `json:"table"`
+			File  string `json:"file"`
+		} `json:"primaryEndpoints"`
+		AccountType string `json:"accountType"`
+	} `json:"properties"`
+	Tags map[string]string `json:"tags"`
+}
+
+type StorageAccountResponse struct {
+	Value []StorageAccount `json:"value"`
+}
+
+type StorageAccountResult struct {
+	StorageAccount StorageAccount
+	CreatedTime    *time.Time
+	Error          error
+}
+
 // CLI configuration
 type Config struct {
 	SubscriptionID string
@@ -115,6 +147,12 @@ func (s *Spinner) Stop() {
 	fmt.Print("\r\033[K") // Clear the line
 }
 
+// CommandProcessor interface for different Azure resource types
+type CommandProcessor interface {
+	FetchData() error
+	GetName() string
+}
+
 // Azure client struct
 type AzureClient struct {
 	Config     Config
@@ -128,8 +166,95 @@ type ResourceGroupResult struct {
 	Error         error
 }
 
+// ResourceGroupProcessor implements CommandProcessor for resource groups
+type ResourceGroupProcessor struct {
+	client *AzureClient
+}
+
+func NewResourceGroupProcessor(client *AzureClient) *ResourceGroupProcessor {
+	return &ResourceGroupProcessor{client: client}
+}
+
+func (rgp *ResourceGroupProcessor) FetchData() error {
+	return rgp.client.FetchResourceGroups()
+}
+
+func (rgp *ResourceGroupProcessor) GetName() string {
+	return "resource groups"
+}
+
+// StorageAccountProcessor implements CommandProcessor for storage accounts
+type StorageAccountProcessor struct {
+	client *AzureClient
+}
+
+func NewStorageAccountProcessor(client *AzureClient) *StorageAccountProcessor {
+	return &StorageAccountProcessor{client: client}
+}
+
+func (sap *StorageAccountProcessor) FetchData() error {
+	return sap.client.FetchStorageAccounts()
+}
+
+func (sap *StorageAccountProcessor) GetName() string {
+	return "storage accounts"
+}
+
+/*
+// Example: How to add a new command type
+// 1. Create a new processor
+type VirtualMachineProcessor struct {
+	client *AzureClient
+}
+
+func NewVirtualMachineProcessor(client *AzureClient) *VirtualMachineProcessor {
+	return &VirtualMachineProcessor{client: client}
+}
+
+func (vmp *VirtualMachineProcessor) FetchData() error {
+	return vmp.client.FetchVirtualMachines()
+}
+
+func (vmp *VirtualMachineProcessor) GetName() string {
+	return "virtual machines"
+}
+
+// 2. Add the command in init()
+var virtualMachinesCmd = &cobra.Command{
+	Use:   "virtual-machines",
+	Short: "List all virtual machines with their details",
+	Run: func(cmd *cobra.Command, args []string) {
+		runner := NewCommandRunner(azureClient)
+		processor := NewVirtualMachineProcessor(azureClient)
+		if err := runner.RunCommand(processor); err != nil {
+			log.Fatalf("Error fetching virtual machines: %v", err)
+		}
+	},
+}
+
+// 3. Add to root command in init()
+rootCmd.AddCommand(virtualMachinesCmd)
+*/
+
 var config Config
 var azureClient *AzureClient
+
+// CommandRunner handles the execution of different command types
+type CommandRunner struct {
+	client *AzureClient
+}
+
+func NewCommandRunner(client *AzureClient) *CommandRunner {
+	return &CommandRunner{client: client}
+}
+
+func (cr *CommandRunner) RunCommand(processor CommandProcessor) error {
+	if !cr.client.Config.Porcelain {
+		fmt.Printf("Fetching %s...\n", processor.GetName())
+	}
+
+	return processor.FetchData()
+}
 
 // Root command
 var rootCmd = &cobra.Command{
@@ -138,14 +263,37 @@ var rootCmd = &cobra.Command{
 	Long: `A command-line tool that fetches all Azure resource groups from a subscription
 and retrieves their creation times (based on the earliest resource in the group) using the Azure Management API.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := azureClient.FetchResourceGroups(); err != nil {
+		runner := NewCommandRunner(azureClient)
+		processor := NewResourceGroupProcessor(azureClient)
+		if err := runner.RunCommand(processor); err != nil {
 			log.Fatalf("Error fetching resource groups: %v", err)
+		}
+	},
+}
+
+// Storage accounts command
+var storageAccountsCmd = &cobra.Command{
+	Use:   "storage-accounts",
+	Short: "List all storage accounts with their creation times and identify limits",
+	Long: `A command-line tool that fetches all Azure storage accounts from a subscription,
+retrieves their creation times, and identifies accounts approaching location-based limits.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		runner := NewCommandRunner(azureClient)
+		processor := NewStorageAccountProcessor(azureClient)
+		if err := runner.RunCommand(processor); err != nil {
+			log.Fatalf("Error fetching storage accounts: %v", err)
 		}
 	},
 }
 
 func init() {
 	cobra.OnInitialize(initConfig)
+
+	// Initialize random seed for jitter in rate limiting
+	rand.Seed(time.Now().UnixNano())
+
+	// Add subcommands
+	rootCmd.AddCommand(storageAccountsCmd)
 
 	// Add flags
 	rootCmd.PersistentFlags().String("subscription-id", "", "Azure subscription ID")
@@ -225,6 +373,13 @@ func initConfig() {
 }
 
 func (ac *AzureClient) makeAzureRequest(url string) (*http.Response, error) {
+	return ac.makeAzureRequestWithRetry(url, 0)
+}
+
+func (ac *AzureClient) makeAzureRequestWithRetry(url string, attempt int) (*http.Response, error) {
+	const maxRetries = 5
+	const baseDelay = 1 * time.Second
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -238,6 +393,35 @@ func (ac *AzureClient) makeAzureRequest(url string) (*http.Response, error) {
 		return nil, fmt.Errorf("failed to make request: %w", err)
 	}
 
+	// Handle rate limiting (429) with exponential backoff
+	if resp.StatusCode == http.StatusTooManyRequests {
+		if attempt >= maxRetries {
+			body, _ := io.ReadAll(resp.Body)
+			if err := resp.Body.Close(); err != nil {
+				log.Printf("Warning: failed to close response body: %v", err)
+			}
+			return nil, fmt.Errorf("API request failed with status %d after %d retries: %s", resp.StatusCode, maxRetries, string(body))
+		}
+
+		// Calculate delay with exponential backoff and jitter
+		delay := baseDelay * time.Duration(1<<attempt)              // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+		jitter := time.Duration(rand.Intn(1000)) * time.Millisecond // Add up to 1s of jitter
+		totalDelay := delay + jitter
+
+		if !ac.Config.Porcelain {
+			log.Printf("Rate limited (429), retrying in %v (attempt %d/%d)", totalDelay, attempt+1, maxRetries)
+		}
+
+		// Close the response body before retrying
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("Warning: failed to close response body: %v", err)
+		}
+
+		time.Sleep(totalDelay)
+		return ac.makeAzureRequestWithRetry(url, attempt+1)
+	}
+
+	// Handle other non-200 status codes
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		if err := resp.Body.Close(); err != nil {
@@ -450,6 +634,425 @@ func (ac *AzureClient) FetchResourceGroups() error {
 	return nil
 }
 
+func (ac *AzureClient) FetchStorageAccounts() error {
+	url := fmt.Sprintf("https://management.azure.com/subscriptions/%s/providers/Microsoft.Storage/storageAccounts?$expand=createdTime&api-version=2021-09-01",
+		ac.Config.SubscriptionID)
+
+	resp, err := ac.makeAzureRequest(url)
+	if err != nil {
+		return fmt.Errorf("failed to fetch storage accounts: %w", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("Warning: failed to close response body: %v", err)
+		}
+	}()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	var storageAccountsResponse StorageAccountResponse
+	if err := json.Unmarshal(body, &storageAccountsResponse); err != nil {
+		return fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if len(storageAccountsResponse.Value) == 0 {
+		fmt.Println("No storage accounts found in this subscription.")
+		return nil
+	}
+
+	if !ac.Config.Porcelain {
+		fmt.Printf("Found %d storage accounts:\n\n", len(storageAccountsResponse.Value))
+	}
+
+	// Check if CSV output is enabled
+	outputCSV := ac.Config.OutputCSV != ""
+
+	var csvData []StorageAccountCSVRow
+	if outputCSV {
+		csvData = make([]StorageAccountCSVRow, 0, len(storageAccountsResponse.Value))
+	}
+
+	// Process storage accounts concurrently
+	if outputCSV {
+		csvData = ac.processStorageAccountsConcurrentlyCSV(storageAccountsResponse.Value)
+	} else {
+		ac.processStorageAccountsConcurrently(storageAccountsResponse.Value)
+	}
+
+	// Write CSV data if output is enabled
+	if outputCSV {
+		if err := ac.writeStorageAccountCSVFile(csvData); err != nil {
+			return fmt.Errorf("failed to write CSV file: %w", err)
+		}
+		if !ac.Config.Porcelain {
+			fmt.Printf("CSV output written to: %s\n", ac.Config.OutputCSV)
+		}
+	}
+
+	return nil
+}
+
+// processStorageAccountsConcurrently processes storage accounts concurrently for better performance
+func (ac *AzureClient) processStorageAccountsConcurrently(storageAccounts []StorageAccount) {
+	// Since we now get creation time from the initial API call, we can process synchronously
+	results := make([]StorageAccountResult, len(storageAccounts))
+
+	// Start spinner if not in porcelain mode
+	var spinner *Spinner
+	if !ac.Config.Porcelain {
+		spinner = NewSpinner("Processing storage accounts...")
+		spinner.Start()
+	}
+
+	// Process storage accounts (no additional API calls needed)
+	for i, sa := range storageAccounts {
+		// Use creation time from properties if available, otherwise from root level
+		createdTime := sa.Properties.CreationTime
+		if createdTime == nil {
+			createdTime = sa.CreatedTime
+		}
+
+		results[i] = StorageAccountResult{
+			StorageAccount: sa,
+			CreatedTime:    createdTime,
+			Error:          nil,
+		}
+	}
+
+	// Stop spinner if it was started
+	if spinner != nil {
+		spinner.Stop()
+	}
+
+	// Print results and analyze limits
+	ac.printStorageAccountResults(results)
+}
+
+// processStorageAccountsConcurrentlyCSV processes storage accounts concurrently and returns CSV data
+func (ac *AzureClient) processStorageAccountsConcurrentlyCSV(storageAccounts []StorageAccount) []StorageAccountCSVRow {
+	// Since we now get creation time from the initial API call, we can process synchronously
+	results := make([]StorageAccountResult, len(storageAccounts))
+
+	// Start spinner if not in porcelain mode
+	var spinner *Spinner
+	if !ac.Config.Porcelain {
+		spinner = NewSpinner("Processing storage accounts for CSV...")
+		spinner.Start()
+	}
+
+	// Process storage accounts (no additional API calls needed)
+	for i, sa := range storageAccounts {
+		// Use creation time from properties if available, otherwise from root level
+		createdTime := sa.Properties.CreationTime
+		if createdTime == nil {
+			createdTime = sa.CreatedTime
+		}
+
+		results[i] = StorageAccountResult{
+			StorageAccount: sa,
+			CreatedTime:    createdTime,
+			Error:          nil,
+		}
+	}
+
+	// Stop spinner if it was started
+	if spinner != nil {
+		spinner.Stop()
+	}
+
+	// Convert results to CSV format
+	csvData := make([]StorageAccountCSVRow, 0, len(results))
+	for _, result := range results {
+		csvRow := ac.convertStorageAccountToCSVRow(result)
+		csvData = append(csvData, csvRow)
+		// Also print to console
+		ac.printStorageAccountResult(result)
+	}
+
+	return csvData
+}
+
+// convertStorageAccountToCSVRow converts a StorageAccountResult to a StorageAccountCSVRow
+func (ac *AzureClient) convertStorageAccountToCSVRow(result StorageAccountResult) StorageAccountCSVRow {
+	sa := result.StorageAccount
+
+	// Format created time
+	createdTimeStr := "Not available"
+	if result.Error != nil {
+		createdTimeStr = "Error: " + result.Error.Error()
+	} else if result.CreatedTime != nil {
+		createdTimeStr = result.CreatedTime.Format(time.RFC3339)
+	}
+
+	// Format account type - try to get it from SKU if not available in properties
+	accountType := sa.Properties.AccountType
+	if accountType == "" || accountType == "Unknown" {
+		// Try to infer from the storage account kind or other properties
+		if sa.Type == "Microsoft.Storage/storageAccounts" {
+			accountType = "Standard_LRS" // Default assumption
+		} else {
+			accountType = "Unknown"
+		}
+	}
+
+	// Extract resource group from ID
+	resourceGroup := extractResourceGroupFromID(sa.ID)
+
+	// Format error
+	errorStr := ""
+	if result.Error != nil {
+		errorStr = result.Error.Error()
+	}
+
+	return StorageAccountCSVRow{
+		StorageAccountName: sa.Name,
+		Location:           sa.Location,
+		AccountType:        accountType,
+		ProvisioningState:  sa.Properties.ProvisioningState,
+		CreatedTime:        createdTimeStr,
+		ResourceGroup:      resourceGroup,
+		BlobEndpoint:       sa.Properties.PrimaryEndpoints.Blob,
+		QueueEndpoint:      sa.Properties.PrimaryEndpoints.Queue,
+		TableEndpoint:      sa.Properties.PrimaryEndpoints.Table,
+		FileEndpoint:       sa.Properties.PrimaryEndpoints.File,
+		Error:              errorStr,
+	}
+}
+
+// printStorageAccountResult prints a single storage account result
+func (ac *AzureClient) printStorageAccountResult(result StorageAccountResult) {
+	if ac.Config.Porcelain {
+		// Porcelain mode: compact, single-line format for scripts
+		createdTime := ""
+		if result.Error != nil {
+			createdTime = "ERROR"
+		} else if result.CreatedTime != nil {
+			createdTime = result.CreatedTime.Format(time.RFC3339)
+		} else {
+			createdTime = "Not available"
+		}
+
+		accountType := result.StorageAccount.Properties.AccountType
+		if accountType == "" || accountType == "Unknown" {
+			accountType = "Standard_LRS"
+		}
+
+		fmt.Printf("%s\t%s\t%s\t%s\t%s\n",
+			result.StorageAccount.Name,
+			result.StorageAccount.Location,
+			accountType,
+			result.StorageAccount.Properties.ProvisioningState,
+			createdTime)
+	} else {
+		// Human-readable format
+		sa := result.StorageAccount
+		createdTime := "Not available"
+		if result.Error != nil {
+			createdTime = "Error fetching (" + result.Error.Error() + ")"
+		} else if result.CreatedTime != nil {
+			createdTime = result.CreatedTime.Format(time.RFC3339)
+		}
+
+		accountType := sa.Properties.AccountType
+		if accountType == "" || accountType == "Unknown" {
+			accountType = "Standard_LRS (inferred)"
+		}
+
+		fmt.Printf("\nStorage Account: %s\n", sa.Name)
+		fmt.Printf("  Location: %s\n", sa.Location)
+		fmt.Printf("  Account Type: %s\n", accountType)
+		fmt.Printf("  Provisioning State: %s\n", sa.Properties.ProvisioningState)
+		fmt.Printf("  Created: %s\n", createdTime)
+
+		// Show endpoint information
+		if sa.Properties.PrimaryEndpoints.Blob != "" {
+			fmt.Printf("  Blob Endpoint: %s\n", sa.Properties.PrimaryEndpoints.Blob)
+		}
+		if sa.Properties.PrimaryEndpoints.Queue != "" {
+			fmt.Printf("  Queue Endpoint: %s\n", sa.Properties.PrimaryEndpoints.Queue)
+		}
+		if sa.Properties.PrimaryEndpoints.Table != "" {
+			fmt.Printf("  Table Endpoint: %s\n", sa.Properties.PrimaryEndpoints.Table)
+		}
+		if sa.Properties.PrimaryEndpoints.File != "" {
+			fmt.Printf("  File Endpoint: %s\n", sa.Properties.PrimaryEndpoints.File)
+		}
+	}
+}
+
+func (ac *AzureClient) printStorageAccountResults(results []StorageAccountResult) {
+	// Group storage accounts by location and account type
+	locationCounts := make(map[string]map[string]int)
+	locationAccounts := make(map[string][]StorageAccountResult)
+	standardDNSAccounts := make(map[string][]StorageAccountResult)
+
+	for _, result := range results {
+		if result.Error != nil {
+			fmt.Printf("Error processing storage account %s: %v\n", result.StorageAccount.Name, result.Error)
+			continue
+		}
+
+		location := result.StorageAccount.Location
+		accountType := result.StorageAccount.Properties.AccountType
+		if accountType == "" {
+			accountType = "Unknown"
+		}
+
+		// Initialize maps if needed
+		if locationCounts[location] == nil {
+			locationCounts[location] = make(map[string]int)
+		}
+		if locationAccounts[location] == nil {
+			locationAccounts[location] = make([]StorageAccountResult, 0)
+		}
+
+		locationCounts[location][accountType]++
+		locationAccounts[location] = append(locationAccounts[location], result)
+
+		// Track Standard DNS accounts specifically (these are the ones causing the limit issue)
+		if accountType == "Standard_LRS" || accountType == "Standard_GRS" || accountType == "Standard_RAGRS" || accountType == "Standard_ZRS" || accountType == "Standard_GZRS" || accountType == "Standard_RAGZRS" {
+			if standardDNSAccounts[location] == nil {
+				standardDNSAccounts[location] = make([]StorageAccountResult, 0)
+			}
+			standardDNSAccounts[location] = append(standardDNSAccounts[location], result)
+		}
+	}
+
+	// Print summary by location
+	fmt.Println("=== STORAGE ACCOUNT SUMMARY BY LOCATION ===")
+	for location, accountTypes := range locationCounts {
+		fmt.Printf("\nLocation: %s\n", location)
+		totalInLocation := 0
+		for accountType, count := range accountTypes {
+			fmt.Printf("  %s: %d accounts\n", accountType, count)
+			totalInLocation += count
+		}
+		fmt.Printf("  Total: %d accounts\n", totalInLocation)
+
+		// Check for limits (Azure allows 250 storage accounts per subscription per region)
+		if totalInLocation >= 240 {
+			fmt.Printf("  ⚠️  WARNING: Approaching limit of 250 storage accounts per region!\n")
+		}
+		if totalInLocation >= 250 {
+			fmt.Printf("  🚨 ERROR: At limit of 250 storage accounts per region!\n")
+		}
+	}
+
+	// Print Standard DNS endpoint analysis
+	fmt.Println("\n=== STANDARD DNS ENDPOINT ANALYSIS ===")
+	for location, accounts := range standardDNSAccounts {
+		count := len(accounts)
+		fmt.Printf("\nLocation: %s - Standard DNS accounts: %d\n", location, count)
+
+		if count >= 240 {
+			fmt.Printf("  🚨 CRITICAL: %d Standard DNS accounts (limit is 260)\n", count)
+			fmt.Printf("  This is likely causing the error: 'Subscription already contains %d storage accounts with Standard Dns endpoints'\n", count)
+		} else if count >= 200 {
+			fmt.Printf("  ⚠️  WARNING: %d Standard DNS accounts (approaching limit of 260)\n", count)
+		}
+
+		// Show oldest accounts that could be candidates for deletion
+		if count > 0 {
+			fmt.Printf("  Oldest Standard DNS accounts in this location:\n")
+			// Sort by creation time (oldest first)
+			sortedAccounts := make([]StorageAccountResult, len(accounts))
+			copy(sortedAccounts, accounts)
+			// Simple sort by creation time (nil times go to end)
+			for i := 0; i < len(sortedAccounts)-1; i++ {
+				for j := i + 1; j < len(sortedAccounts); j++ {
+					if sortedAccounts[i].CreatedTime == nil && sortedAccounts[j].CreatedTime != nil {
+						sortedAccounts[i], sortedAccounts[j] = sortedAccounts[j], sortedAccounts[i]
+					} else if sortedAccounts[i].CreatedTime != nil && sortedAccounts[j].CreatedTime != nil {
+						if sortedAccounts[i].CreatedTime.After(*sortedAccounts[j].CreatedTime) {
+							sortedAccounts[i], sortedAccounts[j] = sortedAccounts[j], sortedAccounts[i]
+						}
+					}
+				}
+			}
+
+			// Show top 5 oldest accounts
+			for i := 0; i < 5 && i < len(sortedAccounts); i++ {
+				sa := sortedAccounts[i].StorageAccount
+				createdTime := "Not available"
+				if sortedAccounts[i].CreatedTime != nil {
+					createdTime = sortedAccounts[i].CreatedTime.Format("2006-01-02")
+				}
+				fmt.Printf("    - %s (Created: %s)\n", sa.Name, createdTime)
+			}
+		}
+	}
+
+	// Print detailed storage account information
+	fmt.Println("\n=== DETAILED STORAGE ACCOUNT INFORMATION ===")
+	for _, result := range results {
+		if result.Error != nil {
+			continue
+		}
+
+		sa := result.StorageAccount
+		createdTime := "Not available"
+		if result.CreatedTime != nil {
+			createdTime = result.CreatedTime.Format(time.RFC3339)
+		}
+
+		accountType := sa.Properties.AccountType
+		if accountType == "" {
+			accountType = "Unknown"
+		}
+
+		fmt.Printf("\nStorage Account: %s\n", sa.Name)
+		fmt.Printf("  Location: %s\n", sa.Location)
+		fmt.Printf("  Account Type: %s\n", accountType)
+		fmt.Printf("  Provisioning State: %s\n", sa.Properties.ProvisioningState)
+		fmt.Printf("  Created: %s\n", createdTime)
+
+		// Show endpoint information
+		if sa.Properties.PrimaryEndpoints.Blob != "" {
+			fmt.Printf("  Blob Endpoint: %s\n", sa.Properties.PrimaryEndpoints.Blob)
+		}
+		if sa.Properties.PrimaryEndpoints.Queue != "" {
+			fmt.Printf("  Queue Endpoint: %s\n", sa.Properties.PrimaryEndpoints.Queue)
+		}
+		if sa.Properties.PrimaryEndpoints.Table != "" {
+			fmt.Printf("  Table Endpoint: %s\n", sa.Properties.PrimaryEndpoints.Table)
+		}
+		if sa.Properties.PrimaryEndpoints.File != "" {
+			fmt.Printf("  File Endpoint: %s\n", sa.Properties.PrimaryEndpoints.File)
+		}
+	}
+
+	// Print recommendations
+	fmt.Println("\n=== RECOMMENDATIONS ===")
+	for location, accountTypes := range locationCounts {
+		totalInLocation := 0
+		for _, count := range accountTypes {
+			totalInLocation += count
+		}
+
+		if totalInLocation >= 240 {
+			fmt.Printf("Location %s has %d storage accounts:\n", location, totalInLocation)
+			fmt.Printf("  - Consider deleting unused storage accounts\n")
+			fmt.Printf("  - Review storage accounts created by default services\n")
+			fmt.Printf("  - Consider using different regions for new storage accounts\n")
+		}
+	}
+
+	// Specific recommendations for Standard DNS endpoint issue
+	for location, accounts := range standardDNSAccounts {
+		count := len(accounts)
+		if count >= 200 {
+			fmt.Printf("\nFor Standard DNS endpoint issue in %s (%d accounts):\n", location, count)
+			fmt.Printf("  - Focus on deleting Standard DNS accounts (Standard_LRS, Standard_GRS, etc.)\n")
+			fmt.Printf("  - Check for storage accounts created by Azure services (Cloud Shell, etc.)\n")
+			fmt.Printf("  - Consider migrating data to Premium storage accounts if possible\n")
+			fmt.Printf("  - Use different regions for new Standard DNS storage accounts\n")
+		}
+	}
+}
+
 // processResourceGroupsConcurrently processes resource groups concurrently for better performance
 func (ac *AzureClient) processResourceGroupsConcurrently(resourceGroups []ResourceGroup) {
 	var wg sync.WaitGroup
@@ -625,6 +1228,24 @@ func (ac *AzureClient) fetchResourceGroupCreatedTime(resourceGroupName string) (
 	return earliestTime, nil
 }
 
+// fetchStorageAccountCreatedTime is no longer needed since we get creation time from the initial API call
+// This function is kept for backward compatibility but should not be used
+func (ac *AzureClient) fetchStorageAccountCreatedTime(storageAccount StorageAccount) (*time.Time, error) {
+	// Simply return the creation time from the storage account if available
+	return storageAccount.CreatedTime, nil
+}
+
+// extractResourceGroupFromID extracts resource group name from a resource ID
+func extractResourceGroupFromID(resourceID string) string {
+	parts := strings.Split(resourceID, "/")
+	for i, part := range parts {
+		if part == "resourceGroups" && i+1 < len(parts) {
+			return parts[i+1]
+		}
+	}
+	return ""
+}
+
 func (ac *AzureClient) listResourcesInGroup(resourceGroupName string) error {
 	url := fmt.Sprintf("https://management.azure.com/subscriptions/%s/resourceGroups/%s/resources?$expand=createdTime&api-version=2019-10-01",
 		ac.Config.SubscriptionID, resourceGroupName)
@@ -667,7 +1288,7 @@ func (ac *AzureClient) listResourcesInGroup(resourceGroupName string) error {
 	return nil
 }
 
-// CSV Row structure for output
+// CSV Row structure for resource groups output
 type CSVRow struct {
 	ResourceGroupName string
 	Location          string
@@ -677,6 +1298,21 @@ type CSVRow struct {
 	CreatedBy         string
 	Description       string
 	Resources         string
+}
+
+// CSV Row structure for storage accounts output
+type StorageAccountCSVRow struct {
+	StorageAccountName string
+	Location           string
+	AccountType        string
+	ProvisioningState  string
+	CreatedTime        string
+	ResourceGroup      string
+	BlobEndpoint       string
+	QueueEndpoint      string
+	TableEndpoint      string
+	FileEndpoint       string
+	Error              string
 }
 
 // processResourceGroupsConcurrentlyCSV processes resource groups concurrently and returns CSV data
@@ -972,6 +1608,62 @@ func (ac *AzureClient) writeCSVFile(csvData []CSVRow) error {
 			row.CreatedBy,
 			row.Description,
 			row.Resources,
+		}
+		if err := writer.Write(record); err != nil {
+			return fmt.Errorf("failed to write CSV row: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// writeStorageAccountCSVFile writes storage account CSV data to the specified file
+func (ac *AzureClient) writeStorageAccountCSVFile(csvData []StorageAccountCSVRow) error {
+	file, err := os.Create(ac.Config.OutputCSV)
+	if err != nil {
+		return fmt.Errorf("failed to create CSV file: %w", err)
+	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			log.Printf("Warning: failed to close CSV file: %v", err)
+		}
+	}()
+
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+
+	// Write header
+	header := []string{
+		"StorageAccountName",
+		"Location",
+		"AccountType",
+		"ProvisioningState",
+		"CreatedTime",
+		"ResourceGroup",
+		"BlobEndpoint",
+		"QueueEndpoint",
+		"TableEndpoint",
+		"FileEndpoint",
+		"Error",
+	}
+	if err := writer.Write(header); err != nil {
+		return fmt.Errorf("failed to write CSV header: %w", err)
+	}
+
+	// Write data rows
+	for _, row := range csvData {
+		record := []string{
+			row.StorageAccountName,
+			row.Location,
+			row.AccountType,
+			row.ProvisioningState,
+			row.CreatedTime,
+			row.ResourceGroup,
+			row.BlobEndpoint,
+			row.QueueEndpoint,
+			row.TableEndpoint,
+			row.FileEndpoint,
+			row.Error,
 		}
 		if err := writer.Write(record); err != nil {
 			return fmt.Errorf("failed to write CSV row: %w", err)
