@@ -931,11 +931,11 @@ func (ac *AzureClient) printStorageAccountResults(results []StorageAccountResult
 		fmt.Printf("  Total: %d accounts\n", totalInLocation)
 
 		// Check for limits (Azure allows 250 storage accounts per subscription per region)
-		if totalInLocation >= 240 {
-			fmt.Printf("  ⚠️  WARNING: Approaching limit of 250 storage accounts per region!\n")
+		if totalInLocation >= STORAGE_ACCOUNT_WARNING_THRESHOLD {
+			fmt.Printf("  ⚠️  WARNING: Approaching limit of %d storage accounts per region!\n", STORAGE_ACCOUNT_LIMIT)
 		}
-		if totalInLocation >= 250 {
-			fmt.Printf("  🚨 ERROR: At limit of 250 storage accounts per region!\n")
+		if totalInLocation >= STORAGE_ACCOUNT_LIMIT {
+			fmt.Printf("  🚨 ERROR: At limit of %d storage accounts per region!\n", STORAGE_ACCOUNT_LIMIT)
 		}
 	}
 
