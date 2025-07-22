@@ -147,7 +147,11 @@ func (s *Spinner) Stop() {
 	fmt.Print("\r\033[K") // Clear the line
 }
 
-// CommandProcessor interface for different Azure resource types
+// CommandProcessor defines the behavior required by the CLI for any Azure
+// resource type. Implementors provide the logic to fetch data for the
+// resource and return a user friendly name. New command types can be created
+// by implementing this interface and wiring a corresponding `cobra.Command`.
+// See ADDING_NEW_COMMANDS.md for a walkthrough of the pattern.
 type CommandProcessor interface {
 	FetchData() error
 	GetName() string
@@ -199,42 +203,6 @@ func (sap *StorageAccountProcessor) FetchData() error {
 func (sap *StorageAccountProcessor) GetName() string {
 	return "storage accounts"
 }
-
-/*
-// Example: How to add a new command type
-// 1. Create a new processor
-type VirtualMachineProcessor struct {
-	client *AzureClient
-}
-
-func NewVirtualMachineProcessor(client *AzureClient) *VirtualMachineProcessor {
-	return &VirtualMachineProcessor{client: client}
-}
-
-func (vmp *VirtualMachineProcessor) FetchData() error {
-	return vmp.client.FetchVirtualMachines()
-}
-
-func (vmp *VirtualMachineProcessor) GetName() string {
-	return "virtual machines"
-}
-
-// 2. Add the command in init()
-var virtualMachinesCmd = &cobra.Command{
-	Use:   "virtual-machines",
-	Short: "List all virtual machines with their details",
-	Run: func(cmd *cobra.Command, args []string) {
-		runner := NewCommandRunner(azureClient)
-		processor := NewVirtualMachineProcessor(azureClient)
-		if err := runner.RunCommand(processor); err != nil {
-			log.Fatalf("Error fetching virtual machines: %v", err)
-		}
-	},
-}
-
-// 3. Add to root command in init()
-rootCmd.AddCommand(virtualMachinesCmd)
-*/
 
 var config Config
 var azureClient *AzureClient
