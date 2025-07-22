@@ -601,7 +601,7 @@ func (ac *AzureClient) FetchResourceGroups() error {
 }
 
 func (ac *AzureClient) FetchStorageAccounts() error {
-	url := fmt.Sprintf("https://management.azure.com/subscriptions/%s/providers/Microsoft.Storage/storageAccounts?$expand=createdTime&api-version=2021-09-01",
+	url := fmt.Sprintf("https://management.azure.com/subscriptions/%s/providers/Microsoft.Storage/storageAccounts?$expand=properties/creationTime&api-version=2021-09-01",
 		ac.Config.SubscriptionID)
 
 	resp, err := ac.makeAzureRequest(url)
