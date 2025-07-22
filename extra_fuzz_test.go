@@ -10,8 +10,9 @@ import (
 	"time"
 )
 
-// TestSpinnerStartStop verifies spinner activation and termination.
-func TestSpinnerStartStop(t *testing.T) {
+// TestSpinnerStartStopFuzz verifies spinner activation and termination.
+// RENAMED from TestSpinnerStartStop to avoid redeclaration error
+func TestSpinnerStartStopFuzz(t *testing.T) {
 	s := NewSpinner("testing")
 	if s.active {
 		t.Fatal("spinner should not be active initially")
@@ -90,8 +91,9 @@ func TestMakeAzureRequestTimeout(t *testing.T) {
 	}
 }
 
-// FuzzValidateConcurrency ensures validateConcurrency never returns less than 1.
-func FuzzValidateConcurrency(f *testing.F) {
+// FuzzValidateConcurrencyFuzz ensures validateConcurrency never returns less than 1.
+// RENAMED from FuzzValidateConcurrency to avoid redeclaration error
+func FuzzValidateConcurrencyFuzz(f *testing.F) {
 	seeds := []int{0, -5, 1, 10}
 	for _, s := range seeds {
 		f.Add(s)
