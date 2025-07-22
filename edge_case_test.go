@@ -13,7 +13,7 @@ import (
 )
 
 // TestMakeAzureRequestTimeout verifies that makeAzureRequest handles slow connections
-func TestMakeAzureRequestTimeout(t *testing.T) {
+func TestMakeAzureRequestTimeout_Edge(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(100 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
@@ -33,7 +33,7 @@ func TestMakeAzureRequestTimeout(t *testing.T) {
 }
 
 // TestSpinnerStartStop ensures spinner can start and stop around a slow operation
-func TestSpinnerStartStop(t *testing.T) {
+func TestSpinnerStartStop_Edge(t *testing.T) {
 	s := NewSpinner("testing")
 
 	old := os.Stdout
