@@ -97,6 +97,36 @@ func TestMakeAzureRequestWithError(t *testing.T) {
 	}
 }
 
+// TestMakeAzureRequestTimeout verifies request timeout handling.
+func TestMakeAzureRequestTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(150 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"value":[]}`))
+	}))
+	defer server.Close()
+	client := &AzureClient{
+		Config:     Config{SubscriptionID: "test", AccessToken: "token", Porcelain: true},
+		HTTPClient: &http.Client{Timeout: 50 * time.Millisecond},
+	}
+	_, err := client.makeAzureRequest(server.URL)
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+}
+
+// TestMakeAzureRequestNetworkError simulates a network failure.
+func TestMakeAzureRequestNetworkError(t *testing.T) {
+	mockClient := &MockHTTPClient{DoFunc: func(req *http.Request) (*http.Response, error) {
+		return nil, io.ErrUnexpectedEOF
+	}}
+	client := &AzureClient{Config: Config{SubscriptionID: "test", AccessToken: "token", Porcelain: true}, HTTPClient: mockClient}
+	_, err := client.makeAzureRequest("http://example.com")
+	if err == nil {
+		t.Fatal("expected network error")
+	}
+}
+
 func TestFetchResourceGroupCreatedTime(t *testing.T) {
 	// Create mock HTTP client
 	mockClient := &MockHTTPClient{
