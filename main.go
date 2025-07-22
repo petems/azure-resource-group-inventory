@@ -289,9 +289,7 @@ retrieves their creation times, and identifies accounts approaching location-bas
 func init() {
 	cobra.OnInitialize(initConfig)
 
-	// Initialize random seed for jitter in rate limiting
-	rand.Seed(time.Now().UnixNano())
-
+	// Initialize random seed for jitter in rate limiting (no longer needed in Go 1.20+)
 	// Add subcommands
 	rootCmd.AddCommand(storageAccountsCmd)
 
