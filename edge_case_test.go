@@ -17,7 +17,9 @@ func TestMakeAzureRequestTimeout_Edge(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(100 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"value":[]}`))
+		if _, err := w.Write([]byte(`{"value":[]}`)); err != nil {
+			t.Fatalf("failed to write response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -37,18 +39,25 @@ func TestSpinnerStartStop_Edge(t *testing.T) {
 	s := NewSpinner("testing")
 
 	old := os.Stdout
-	r, w, _ := os.Pipe()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
 	os.Stdout = w
 
 	s.Start()
 	time.Sleep(250 * time.Millisecond)
 	s.Stop()
 
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("failed to close pipe writer: %v", err)
+	}
 	os.Stdout = old
 
 	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, r)
+	if _, err := io.Copy(&buf, r); err != nil {
+		t.Fatalf("failed to read spinner output: %v", err)
+	}
 	if buf.Len() == 0 {
 		t.Error("expected spinner output")
 	}
