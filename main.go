@@ -911,7 +911,7 @@ func (ac *AzureClient) printStorageAccountResults(results []StorageAccountResult
 		locationAccounts[location] = append(locationAccounts[location], result)
 
 		// Track Standard DNS accounts specifically (these are the ones causing the limit issue)
-		if accountType == "Standard_LRS" || accountType == "Standard_GRS" || accountType == "Standard_RAGRS" || accountType == "Standard_ZRS" || accountType == "Standard_GZRS" || accountType == "Standard_RAGZRS" {
+		if isStandardDNSAccount(accountType) {
 			if standardDNSAccounts[location] == nil {
 				standardDNSAccounts[location] = make([]StorageAccountResult, 0)
 			}
