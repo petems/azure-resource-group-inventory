@@ -959,17 +959,15 @@ func (ac *AzureClient) printStorageAccountResults(results []StorageAccountResult
 			sortedAccounts := make([]StorageAccountResult, len(accounts))
 			copy(sortedAccounts, accounts)
 			// Simple sort by creation time (nil times go to end)
-			for i := 0; i < len(sortedAccounts)-1; i++ {
-				for j := i + 1; j < len(sortedAccounts); j++ {
-					if sortedAccounts[i].CreatedTime == nil && sortedAccounts[j].CreatedTime != nil {
-						sortedAccounts[i], sortedAccounts[j] = sortedAccounts[j], sortedAccounts[i]
-					} else if sortedAccounts[i].CreatedTime != nil && sortedAccounts[j].CreatedTime != nil {
-						if sortedAccounts[i].CreatedTime.After(*sortedAccounts[j].CreatedTime) {
-							sortedAccounts[i], sortedAccounts[j] = sortedAccounts[j], sortedAccounts[i]
-						}
-					}
+			sort.Slice(sortedAccounts, func(i, j int) bool {
+				if sortedAccounts[i].CreatedTime == nil {
+					return false // Place nil times at the end
 				}
-			}
+				if sortedAccounts[j].CreatedTime == nil {
+					return true // Place non-nil times before nil times
+				}
+				return sortedAccounts[i].CreatedTime.Before(*sortedAccounts[j].CreatedTime)
+			})
 
 			// Show top 5 oldest accounts
 			for i := 0; i < 5 && i < len(sortedAccounts); i++ {
