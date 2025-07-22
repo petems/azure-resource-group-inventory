@@ -253,7 +253,10 @@ func TestFetchResourceGroups(t *testing.T) {
 
 	// Capture output
 	old := os.Stdout
-	r, w, _ := os.Pipe()
+	r, w, pipeErr := os.Pipe()
+	if pipeErr != nil {
+		t.Fatalf("failed to create pipe: %v", pipeErr)
+	}
 	os.Stdout = w
 
 	// Test the function
@@ -772,7 +775,10 @@ func TestFetchResourceGroupsWithDefaultDetection(t *testing.T) {
 
 	// Capture output
 	old := os.Stdout
-	r, w, _ := os.Pipe()
+	r, w, pipeErr := os.Pipe()
+	if pipeErr != nil {
+		t.Fatalf("failed to create pipe: %v", pipeErr)
+	}
 	os.Stdout = w
 
 	// Test the function
@@ -1402,5 +1408,88 @@ func TestFetchResourcesInGroup(t *testing.T) {
 	}
 	if resources[1].CreatedTime != nil {
 		t.Error("Expected second resource to have nil created time")
+	}
+}
+
+func TestPrintResourceGroupResultWithResources_Porcelain(t *testing.T) {
+	ac := &AzureClient{Config: Config{Porcelain: true}}
+
+	created1, err := time.Parse(time.RFC3339, "2023-01-01T00:00:00Z")
+	if err != nil {
+		t.Fatalf("failed to parse time: %v", err)
+	}
+	created2, err := time.Parse(time.RFC3339, "2023-02-01T00:00:00Z")
+	if err != nil {
+		t.Fatalf("failed to parse time: %v", err)
+	}
+
+	resources := []Resource{
+		{Name: "res1", Type: "type1", CreatedTime: &created1},
+		{Name: "res2", Type: "type2", CreatedTime: &created2},
+	}
+
+	rg := ResourceGroup{Name: "my-rg", Location: "eastus", Properties: struct {
+		ProvisioningState string `json:"provisioningState"`
+	}{ProvisioningState: "Succeeded"}}
+	result := ResourceGroupResult{ResourceGroup: rg}
+
+	old := os.Stdout
+	r, w, pipeErr := os.Pipe()
+	if pipeErr != nil {
+		t.Fatalf("failed to create pipe: %v", pipeErr)
+	}
+	os.Stdout = w
+
+	ac.printResourceGroupResultWithResources(result, resources)
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("failed to close pipe writer: %v", err)
+	}
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, r); err != nil {
+		t.Fatalf("failed to read output: %v", err)
+	}
+
+	expected := fmt.Sprintf("%s\t%s\t%s\t%s\tfalse\n", rg.Name, rg.Location, rg.Properties.ProvisioningState, created1.Format(time.RFC3339))
+	if strings.TrimSpace(buf.String()) != strings.TrimSpace(expected) {
+		t.Errorf("unexpected output:\n%s", buf.String())
+	}
+}
+
+func TestPrintResourceGroupResultWithResources_Human(t *testing.T) {
+	ac := &AzureClient{Config: Config{Porcelain: false}}
+
+	rg := ResourceGroup{Name: "networkwatcherrg", Location: "eastus", Properties: struct {
+		ProvisioningState string `json:"provisioningState"`
+	}{ProvisioningState: "Succeeded"}}
+	result := ResourceGroupResult{ResourceGroup: rg}
+
+	old := os.Stdout
+	r, w, pipeErr := os.Pipe()
+	if pipeErr != nil {
+		t.Fatalf("failed to create pipe: %v", pipeErr)
+	}
+	os.Stdout = w
+
+	ac.printResourceGroupResultWithResources(result, nil)
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("failed to close pipe writer: %v", err)
+	}
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, r); err != nil {
+		t.Fatalf("failed to read output: %v", err)
+	}
+	output := buf.String()
+
+	if !strings.Contains(output, "DEFAULT RESOURCE GROUP DETECTED") {
+		t.Errorf("expected default detection in output, got:\n%s", output)
+	}
+	if !strings.Contains(output, "No resources found") {
+		t.Errorf("expected no resources message, got:\n%s", output)
 	}
 }
