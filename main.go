@@ -371,6 +371,9 @@ func (ac *AzureClient) makeAzureRequestWithRetry(url string, attempt int) (*http
 
 		// Calculate delay with exponential backoff and jitter
 		delay := baseDelay * time.Duration(1<<attempt)              // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+		if delay > maxDelay {
+			delay = maxDelay // Cap the delay to the maximum value
+		}
 		jitter := time.Duration(rand.Intn(1000)) * time.Millisecond // Add up to 1s of jitter
 		totalDelay := delay + jitter
 
