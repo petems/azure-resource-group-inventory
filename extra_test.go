@@ -38,6 +38,22 @@ func TestSpinnerStartStop(t *testing.T) {
 	}
 }
 
+// TestNewSpinnerInitialState verifies that a new spinner starts inactive and
+// with the provided message.
+func TestNewSpinnerInitialState(t *testing.T) {
+	msg := "init message"
+	s := NewSpinner(msg)
+	if s.message != msg {
+		t.Errorf("expected message %q, got %q", msg, s.message)
+	}
+	if s.active {
+		t.Error("spinner should not be active upon creation")
+	}
+	if s.done == nil {
+		t.Error("spinner done channel not initialized")
+	}
+}
+
 // TestFetchResourceGroupsSlowConnection simulates slower HTTP responses
 func TestFetchResourceGroupsSlowConnection(t *testing.T) {
 	mockClient := &MockHTTPClient{
