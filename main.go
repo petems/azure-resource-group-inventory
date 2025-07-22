@@ -785,16 +785,8 @@ func (ac *AzureClient) convertStorageAccountToCSVRow(result StorageAccountResult
 		createdTimeStr = result.CreatedTime.Format(time.RFC3339)
 	}
 
-	// Format account type - try to get it from SKU if not available in properties
-	accountType := sa.Properties.AccountType
-	if accountType == "" || accountType == "Unknown" {
-		// Try to infer from the storage account kind or other properties
-		if sa.Type == "Microsoft.Storage/storageAccounts" {
-			accountType = "Standard_LRS" // Default assumption
-		} else {
-			accountType = "Unknown"
-		}
-	}
+	// Format account type - try to infer when not explicitly provided
+	accountType := inferAccountType(sa)
 
 	// Extract resource group from ID
 	resourceGroup := extractResourceGroupFromID(sa.ID)
@@ -833,10 +825,7 @@ func (ac *AzureClient) printStorageAccountResult(result StorageAccountResult) {
 			createdTime = "Not available"
 		}
 
-		accountType := result.StorageAccount.Properties.AccountType
-		if accountType == "" || accountType == "Unknown" {
-			accountType = "Standard_LRS"
-		}
+		accountType := inferAccountType(result.StorageAccount)
 
 		fmt.Printf("%s\t%s\t%s\t%s\t%s\n",
 			result.StorageAccount.Name,
@@ -854,9 +843,10 @@ func (ac *AzureClient) printStorageAccountResult(result StorageAccountResult) {
 			createdTime = result.CreatedTime.Format(time.RFC3339)
 		}
 
-		accountType := sa.Properties.AccountType
-		if accountType == "" || accountType == "Unknown" {
-			accountType = "Standard_LRS (inferred)"
+		accountType := inferAccountType(sa)
+		if accountType == "Standard_LRS" &&
+			(sa.Properties.AccountType == "" || sa.Properties.AccountType == "Unknown") {
+			accountType += " (inferred)"
 		}
 
 		fmt.Printf("\nStorage Account: %s\n", sa.Name)
@@ -894,10 +884,7 @@ func (ac *AzureClient) printStorageAccountResults(results []StorageAccountResult
 		}
 
 		location := result.StorageAccount.Location
-		accountType := result.StorageAccount.Properties.AccountType
-		if accountType == "" {
-			accountType = "Unknown"
-		}
+		accountType := inferAccountType(result.StorageAccount)
 
 		// Initialize maps if needed
 		if locationCounts[location] == nil {
@@ -994,10 +981,7 @@ func (ac *AzureClient) printStorageAccountResults(results []StorageAccountResult
 			createdTime = result.CreatedTime.Format(time.RFC3339)
 		}
 
-		accountType := sa.Properties.AccountType
-		if accountType == "" {
-			accountType = "Unknown"
-		}
+		accountType := inferAccountType(sa)
 
 		fmt.Printf("\nStorage Account: %s\n", sa.Name)
 		fmt.Printf("  Location: %s\n", sa.Location)
@@ -1229,6 +1213,22 @@ func (ac *AzureClient) fetchResourceGroupCreatedTime(resourceGroupName string) (
 func (ac *AzureClient) fetchStorageAccountCreatedTime(storageAccount StorageAccount) (*time.Time, error) {
 	// Simply return the creation time from the storage account if available
 	return storageAccount.CreatedTime, nil
+}
+
+// inferAccountType returns the account type for a storage account. If the
+// account type is empty or unknown, a best effort guess is made based on the
+// storage account's properties.
+func inferAccountType(sa StorageAccount) string {
+	accountType := sa.Properties.AccountType
+	if accountType == "" || accountType == "Unknown" {
+		if sa.Type == "Microsoft.Storage/storageAccounts" {
+			// Default assumption when type is unknown
+			accountType = "Standard_LRS"
+		} else {
+			accountType = "Unknown"
+		}
+	}
+	return accountType
 }
 
 // extractResourceGroupFromID extracts resource group name from a resource ID
